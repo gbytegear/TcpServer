@@ -1,5 +1,5 @@
 # TcpServer
-Crossplatform Multi-threading TCP/IP Server
+Simple Crossplatform Multi-threading TCP/IP Server
 
 **Usage example:**
 ```cpp
