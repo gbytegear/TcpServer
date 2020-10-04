@@ -1,5 +1,7 @@
 #include "tcp/hdr/TcpServer.h"
-#include "tcp/hdr/TcpClient.h"
+#include "tcp/src/TcpServer.cpp"
+//#include "tcp/hdr/TcpClient.h"
+//#include "tcp/src/TcpClient.cpp"
 
 #include <iostream>
 #include <mutex>
