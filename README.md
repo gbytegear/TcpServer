@@ -1,6 +1,14 @@
 # TcpServer
 Simple Crossplatform Multi-threading TCP/IP Server
 
+**Build**
+
+Require ```gcc```
+
+```bash
+make all
+```
+
 **Usage example:**
 ```cpp
 #include "server/hdr/TcpServer.h"

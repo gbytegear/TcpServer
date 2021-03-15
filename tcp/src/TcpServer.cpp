@@ -185,7 +185,26 @@ TcpServer::Client::~Client() {
 	close(socket);
 }
 
-uint32_t TcpServer::Client::getHost() {return address.sin_addr.s_addr;}
-uint16_t TcpServer::Client::getPort() {return address.sin_port;}
+uint32_t TcpServer::Client::getHost() const {return address.sin_addr.s_addr;}
+uint16_t TcpServer::Client::getPort() const {return address.sin_port;}
+
+void TcpServer::Client::connectTo(TcpServer::Client& other_client) const {
+  other_client.connected_to = const_cast<Client*>(this);
+  while(true) {
+    int size = other_client.loadData();
+    if(size == 0) return;
+    sendData(other_client.getData (), size);
+  }
+}
+
+void TcpServer::Client::waitConnect() const {
+  while (connected_to == nullptr);
+  while(true) {
+    int size = connected_to->loadData();
+    if(size == 0) return;
+    sendData(connected_to->getData (), size);
+    std::this_thread::sleep_for(std::chrono::microseconds(80));
+  }
+}
 
 #endif

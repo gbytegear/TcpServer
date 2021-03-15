@@ -74,10 +74,10 @@ public:
 
 
 class TcpServer::Client {
+  Client* connected_to = nullptr;
 #ifdef _WIN32 // Windows NT
 	SOCKADDR_IN address;
 	SOCKET socket;
-	Client* connected_to = nullptr;
 	char buffer[buffer_size];
 public:
 	Client(SOCKET socket, SOCKADDR_IN address);

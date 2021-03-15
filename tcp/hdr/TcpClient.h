@@ -4,12 +4,21 @@
 #define localhost 0x0100007f
 
 #include <cstdint>
+#include <cstddef>
 #ifdef _WIN32
 #include <winsock2.h>
+#include <ws2tcpip.h>
+#include <Windows.h>
 #include <ws2tcpip.h>
 typedef SOCKET socket_t;
 #else
 typedef int socket_t;
+//#include <sys/types.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <stdio.h>
+#include <stdlib.h>
 #endif
 
 #define buffer_size 4096

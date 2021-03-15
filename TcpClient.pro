@@ -4,7 +4,7 @@ CONFIG -= app_bundle
 CONFIG -= qt
 
 linux-g++ | linux-g++-64 | linux-g++-32 {
-LIBS +=  -static-libstdc++ -static-libgcc
+LIBS +=  -lpthread
 CONFIG += c++2a
 } else {
 CONFIG += c++17
