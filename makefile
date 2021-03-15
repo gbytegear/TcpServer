@@ -14,3 +14,5 @@ lib: libtcp.a
 
 all: client server
 
+clean:
+	rm -rf ./chat_* ./libtcp.a ./TcpServer.pro.* ./TcpClient.pro.*
