@@ -3,7 +3,7 @@ Simple Crossplatform Multi-threading TCP/IP Server
 
 **Build**
 
-Require ```gcc```
+```gcc``` Required
 
 ```bash
 make all
