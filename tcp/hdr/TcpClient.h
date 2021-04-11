@@ -21,7 +21,10 @@ typedef int socket_t;
 #include <stdlib.h>
 #endif
 
-#define buffer_size 4096
+struct DataDescriptor {
+  size_t size;
+  void* data_ptr;
+};
 
 struct TcpClient {
 
@@ -34,7 +37,7 @@ struct TcpClient {
 	};
 
 private:
-	char buffer[buffer_size];
+	char* buffer = nullptr;
 	status _status = status::disconnected;
 	socket_t client_socket;
 #ifdef _WIN32
@@ -53,8 +56,11 @@ public:
 
 	status getStatus() {return _status;}
 
+  void clearData();
 	int loadData();
 	char* getData();
+  DataDescriptor waitData();
+
 
 	bool sendData(const char* buffer, const size_t size) const;
 };

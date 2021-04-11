@@ -1,5 +1,6 @@
 #include "../hdr/TcpClient.h"
 #include <stdio.h>
+#include <cstring>
 
 #ifdef _WIN32
 #define WIN(exp) exp
@@ -15,6 +16,7 @@
 TcpClient::TcpClient() noexcept : _status(status::disconnected) {}
 
 TcpClient::~TcpClient() {
+  clearData();
 	disconnect();
   WIN(WSACleanup();)
 }
@@ -54,13 +56,36 @@ TcpClient::status TcpClient::disconnect() noexcept {
       ,
     close(client_socket);
   )
-	return _status = status::disconnected;
+  return _status = status::disconnected;
 }
 
-int TcpClient::loadData() {return recv (client_socket, buffer, buffer_size, 0);}
+void TcpClient::clearData() {
+
+}
+
+int TcpClient::loadData() {
+  int size = 0;
+  recv(client_socket, &size, sizeof (size), 0);
+  if(size) {
+    clearData();
+    buffer = (char*)malloc(size);
+    recv(client_socket, buffer, size, 0);
+  }
+  return size;
+}
 char* TcpClient::getData() {return buffer;}
 
+DataDescriptor TcpClient::waitData() {
+  int size = 0;
+  while (!(size = loadData()));
+  return DataDescriptor{static_cast<size_t>(size), getData()};
+}
+
 bool TcpClient::sendData(const char* buffer, const size_t size) const {
-	if(send(client_socket, buffer, size, 0) < 0) return false;
+  void* send_buffer = malloc(size + sizeof (int));
+  memcpy(reinterpret_cast<char*>(send_buffer) + sizeof(int), buffer, size);
+  *reinterpret_cast<int*>(send_buffer) = size;
+	if(send(client_socket, send_buffer, size + sizeof(int), 0) < 0) return false;
+  free(send_buffer);
 	return true;
 }

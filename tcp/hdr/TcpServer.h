@@ -22,7 +22,7 @@
 #endif
 
 
-#define buffer_size 4096
+//#define buffer_size 4096
 
 struct TcpServer {
 	class Client;
@@ -72,6 +72,10 @@ public:
 	void joinLoop();
 };
 
+struct DataDescriptor {
+  size_t size;
+  void* data_ptr;
+};
 
 class TcpServer::Client {
   Client* connected_to = nullptr;
@@ -84,7 +88,8 @@ public:
 #else // *nix
 	int socket;
 	struct sockaddr_in address;
-	char buffer[buffer_size];
+//	char buffer[buffer_size];
+  char* buffer = nullptr;
 public:
 	Client(int socket, struct sockaddr_in address);
 #endif
@@ -97,8 +102,10 @@ public:
 	void connectTo(Client& other_client) const;
 	void waitConnect() const;
 
+  void clearData();
 	int loadData();
 	char* getData();
+  DataDescriptor waitData();
 
 	bool sendData(const char* buffer, const size_t size) const;
 };

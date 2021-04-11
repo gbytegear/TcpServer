@@ -1,5 +1,6 @@
 #include "../hdr/TcpServer.h"
 #include <chrono>
+#include <cstring>
 
 TcpServer::TcpServer(const uint16_t port, handler_function_t handler) : port(port), handler(handler) {}
 
@@ -27,11 +28,37 @@ TcpServer::status TcpServer::restart() {
 	return start();
 }
 
-int TcpServer::Client::loadData() {return recv(socket, buffer, buffer_size, 0);}
+void TcpServer::Client::clearData() {
+  if(buffer) {
+    free(buffer);
+    buffer = nullptr;
+  }
+}
+
+int TcpServer::Client::loadData() {
+  int size = 0;
+  recv(socket, &size, sizeof (size), 0);
+  if(size) {
+    clearData();
+    buffer = (char*)malloc(size);
+    recv(socket, buffer, size, 0);
+  }
+  return size;
+}
 char* TcpServer::Client::getData() {return buffer;}
 
+DataDescriptor TcpServer::Client::waitData() {
+  int size = 0;
+  while (!(size = loadData()));
+  return DataDescriptor{static_cast<size_t>(size), getData()};
+}
+
 bool TcpServer::Client::sendData(const char* buffer, const size_t size) const {
-  if(send(socket, buffer, size, 0) < 0) return false;
+  void* send_buffer = malloc(size + sizeof (int));
+  memcpy(reinterpret_cast<char*>(send_buffer) + sizeof(int), buffer, size);
+  *reinterpret_cast<int*>(send_buffer) = size;
+  if(send(socket, send_buffer, size + sizeof (int), 0) < 0) return false;
+  free(send_buffer);
   return true;
 }
 
@@ -181,6 +208,7 @@ TcpServer::Client::Client(int socket, struct sockaddr_in address) : socket(socke
 TcpServer::Client::Client(const TcpServer::Client& other) : socket(other.socket), address(other.address) {}
 
 TcpServer::Client::~Client() {
+  clearData();
 	shutdown(socket, 0);
 	close(socket);
 }
