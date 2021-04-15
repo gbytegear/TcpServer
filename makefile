@@ -4,11 +4,11 @@ libtcp.a:
 	rm -rf ./*.o
 
 client: libtcp.a
-	g++ ./client/main.cpp -I. -L/home/oldev/projects/TcpServer -ltcp -lpthread -o chat_client
+	g++ ./client/main.cpp -I. -L/home/oldev/projects/TcpServer -o chat_client -lpthread -ltcp
 
 
 server: libtcp.a
-	g++ ./server/main.cpp -I. -L/home/oldev/projects/TcpServer -ltcp -lpthread -o chat_server
+	g++ ./server/main.cpp -I. -L/home/oldev/projects/TcpServer -o chat_server -lpthread -ltcp
 
 lib: libtcp.a
 

@@ -37,7 +37,7 @@ void TcpServer::Client::clearData() {
 
 int TcpServer::Client::loadData() {
   int size = 0;
-  recv(socket, &size, sizeof (size), 0);
+  recv(socket, reinterpret_cast<char*>(&size), sizeof (size), 0);
   if(size) {
     clearData();
     buffer = (char*)malloc(size);
@@ -57,7 +57,7 @@ bool TcpServer::Client::sendData(const char* buffer, const size_t size) const {
   void* send_buffer = malloc(size + sizeof (int));
   memcpy(reinterpret_cast<char*>(send_buffer) + sizeof(int), buffer, size);
   *reinterpret_cast<int*>(send_buffer) = size;
-  if(send(socket, send_buffer, size + sizeof (int), 0) < 0) return false;
+  if(send(socket, reinterpret_cast<char*>(send_buffer), size + sizeof (int), 0) < 0) return false;
   free(send_buffer);
   return true;
 }
