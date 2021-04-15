@@ -24,7 +24,7 @@ TcpClient::~TcpClient() {
 TcpClient::status TcpClient::connectTo(uint32_t host, uint16_t port) noexcept {
   WIN(if(WSAStartup(MAKEWORD(2, 2), &w_data) != 0) {})
 
-  if((client_socket = socket (AF_INET, SOCK_STREAM, IPPROTO_IP))
+  if((client_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_IP))
      WIN(== SOCKET_ERROR)
      NIX(< 0)
      ) return _status = status::err_socket_init;

@@ -82,7 +82,7 @@ class TcpServer::Client {
 #ifdef _WIN32 // Windows NT
 	SOCKADDR_IN address;
 	SOCKET socket;
-	char buffer[buffer_size];
+  char* buffer = nullptr;
 public:
 	Client(SOCKET socket, SOCKADDR_IN address);
 #else // *nix
