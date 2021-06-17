@@ -23,4 +23,5 @@ SOURCES += server/main.cpp \
 
 HEADERS += \
         tcp/hdr/TcpServer.h \
-	tcp/hdr/TcpClient.h
+	tcp/hdr/TcpClient.h \
+    tcp/hdr/general.h

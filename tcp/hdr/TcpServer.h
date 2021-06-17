@@ -21,6 +21,7 @@
 
 #endif
 
+#include "general.h"
 
 //#define buffer_size 4096
 
@@ -70,11 +71,6 @@ public:
 	void stop();
 
 	void joinLoop();
-};
-
-struct DataDescriptor {
-  size_t size;
-  void* data_ptr;
 };
 
 class TcpServer::Client {

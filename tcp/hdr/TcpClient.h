@@ -21,10 +21,7 @@ typedef int socket_t;
 #include <stdlib.h>
 #endif
 
-struct DataDescriptor {
-  size_t size;
-  void* data_ptr;
-};
+#include "general.h"
 
 struct TcpClient {
 
