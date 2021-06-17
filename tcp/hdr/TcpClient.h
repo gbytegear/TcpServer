@@ -1,8 +1,6 @@
 #ifndef TCPCLIENT_H
 #define TCPCLIENT_H
 
-#define localhost 0x0100007f
-
 #include <cstdint>
 #include <cstddef>
 #ifdef _WIN32
