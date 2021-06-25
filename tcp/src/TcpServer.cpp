@@ -57,7 +57,7 @@ char* TcpServer::Client::getData() {return buffer;}
 
 DataDescriptor TcpServer::Client::waitData() {
   int size = 0;
-  while (!(size = loadData()));
+  while (!(size = loadData()) && server.getStatus() == TcpServer::status::up);
   return DataDescriptor{static_cast<size_t>(size), getData()};
 }
 
@@ -115,6 +115,7 @@ void TcpServer::stop() {
 void TcpServer::joinLoop() {handler_thread.join();}
 
 void TcpServer::handlingLoop() {
+  // TODO: Rewrite this sh*t
   while (_status == status::up) {
     WIN(
           SOCKET client_socket;
@@ -122,7 +123,7 @@ void TcpServer::handlingLoop() {
           int addrlen = sizeof(client_addr);
           if ((client_socket = accept(serv_socket, (struct sockaddr*)&client_addr, &addrlen)) != 0 && _status == status::up){
             client_handler_threads.push_back(std::thread([this, &client_socket, &client_addr] {
-              handler(Client(client_socket, client_addr));
+              handler(Client(client_socket, client_addr, *this));
               client_handling_end.push_back (std::this_thread::get_id());
             }));
           }
@@ -134,7 +135,7 @@ void TcpServer::handlingLoop() {
           int addrlen = sizeof (struct sockaddr_in);
           if((client_socket = accept(serv_socket, (struct sockaddr*)&client_addr, (socklen_t*)&addrlen)) >= 0 && _status == status::up)
             client_handler_threads.push_back(std::thread([this, &client_socket, &client_addr] {
-              handler(Client(client_socket, client_addr));
+              handler(Client(client_socket, client_addr, *this));
               client_handling_end.push_back (std::this_thread::get_id());
             }));
     )
@@ -152,13 +153,9 @@ void TcpServer::handlingLoop() {
   }
 }
 
-#ifdef _WIN32
-TcpServer::Client::Client(SOCKET socket, SOCKADDR_IN address) : socket(socket), address(address) {}
-TcpServer::Client::Client(const TcpServer::Client& other) : socket(other.socket), address(other.address) {}
-#else
-TcpServer::Client::Client(int socket, struct sockaddr_in address) : socket(socket), address(address) {}
-TcpServer::Client::Client(const TcpServer::Client& other) : socket(other.socket), address(other.address) {}
-#endif
+TcpServer::Client::Client(Socket socket, SocketAddr_in address, TcpServer& server) : server(server), address(address), socket(socket) {}
+TcpServer::Client::Client(const TcpServer::Client& other) : server(other.server), address(other.address), socket(other.socket) {}
+
 
 TcpServer::Client::~Client() {
   clearData();
@@ -180,8 +177,8 @@ void TcpServer::Client::connectTo(TcpServer::Client& other_client) const {
 }
 
 void TcpServer::Client::waitConnect() const {
-  while (connected_to == nullptr);
-  while(true) {
+  while (connected_to == nullptr && server.getStatus() == TcpServer::status::up);
+  while(server.getStatus() == TcpServer::status::up) {
     int size = connected_to->loadData();
     if(size == 0) return;
     sendData(connected_to->getData (), size);

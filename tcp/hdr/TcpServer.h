@@ -74,22 +74,25 @@ public:
 };
 
 class TcpServer::Client {
+  TcpServer& server;
   Client* connected_to = nullptr;
 #ifdef _WIN32 // Windows NT
-	SOCKADDR_IN address;
-	SOCKET socket;
-  char* buffer = nullptr;
-public:
-	Client(SOCKET socket, SOCKADDR_IN address);
+
+  typedef SOCKADDR_IN SocketAddr_in;
+  typedef SOCKET Socket;
+
 #else // *nix
-	int socket;
-	struct sockaddr_in address;
-//	char buffer[buffer_size];
+
+  typedef int SocketAddr_in;
+  typedef struct sockaddr_in Socket;
+
+#endif
+
+  SocketAddr_in address;
+  Socket socket;
   char* buffer = nullptr;
 public:
-	Client(int socket, struct sockaddr_in address);
-#endif
-public:
+  Client(Socket socket, SocketAddr_in address, TcpServer& server);
 	Client(const Client& other);
 	~Client();
 	uint32_t getHost() const;
