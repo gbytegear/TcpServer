@@ -26,51 +26,51 @@
 //#define buffer_size 4096
 
 struct TcpServer {
-	class Client;
-	typedef std::function<void(Client)> handler_function_t;
-	enum class status : uint8_t {
-		up = 0,
-		err_socket_init = 1,
-		err_socket_bind = 2,
-		err_socket_listening = 3,
-		close = 4
-	};
+  class Client;
+  typedef std::function<void(Client)> handler_function_t;
+  enum class status : uint8_t {
+    up = 0,
+    err_socket_init = 1,
+    err_socket_bind = 2,
+    err_socket_listening = 3,
+    close = 4
+  };
 
 private:
-	uint16_t port;
-	status _status = status::close;
-	handler_function_t handler;
+  uint16_t port;
+  status _status = status::close;
+  handler_function_t handler;
 
-	std::thread handler_thread;
-	std::list<std::thread> client_handler_threads;
-	std::list<std::thread::id> client_handling_end;
+  std::thread handler_thread;
+  std::list<std::thread> client_handler_threads;
 
 #ifdef _WIN32 // Windows NT
-	SOCKET serv_socket = INVALID_SOCKET;
-	WSAData w_data;
+  SOCKET serv_socket = INVALID_SOCKET;
+  WSAData w_data;
 #else // *nix
-	int serv_socket;
+  int serv_socket;
 #endif
 
-	void handlingLoop();
+  void handlingLoop();
+  void eventBasedHandlingLoop();
 
 public:
-	TcpServer(const uint16_t port, handler_function_t handler);
-	~TcpServer();
+  TcpServer(const uint16_t port, handler_function_t handler);
+  ~TcpServer();
 
-	//! Set client handler
-	void setHandler(handler_function_t handler);
+  //! Set client handler
+  void setHandler(handler_function_t handler);
 
-	uint16_t getPort() const;
-	uint16_t setPort(const uint16_t port);
+  uint16_t getPort() const;
+  uint16_t setPort(const uint16_t port);
 
-	status getStatus() const {return _status;}
+  status getStatus() const {return _status;}
 
-	status restart();
-	status start();
-	void stop();
+  status restart();
+  status start();
+  void stop();
 
-	void joinLoop();
+  void joinLoop();
 };
 
 class TcpServer::Client {
@@ -93,20 +93,20 @@ class TcpServer::Client {
   char* buffer = nullptr;
 public:
   Client(Socket socket, SocketAddr_in address, TcpServer& server);
-	Client(const Client& other);
-	~Client();
-	uint32_t getHost() const;
-	uint16_t getPort() const;
+  Client(const Client& other);
+  ~Client();
+  uint32_t getHost() const;
+  uint16_t getPort() const;
 
-	void connectTo(Client& other_client) const;
-	void waitConnect() const;
+  void connectTo(Client& other_client) const;
+  void waitConnect() const;
 
   void clearData();
-	int loadData();
-	char* getData();
+  int loadData();
+  char* getData();
   DataDescriptor waitData();
 
-	bool sendData(const char* buffer, const size_t size) const;
+  bool sendData(const char* buffer, const size_t size) const;
 };
 
 

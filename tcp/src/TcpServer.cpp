@@ -1,6 +1,7 @@
 #include "../hdr/TcpServer.h"
 #include <chrono>
 #include <cstring>
+#include <mutex>
 
 #ifdef _WIN32
 #define WIN(exp) exp
@@ -108,8 +109,7 @@ void TcpServer::stop() {
   joinLoop();
   for(std::thread& cl_thr : client_handler_threads)
     cl_thr.join();
-  client_handler_threads.clear ();
-  client_handling_end.clear ();
+  client_handler_threads.clear();
 }
 
 void TcpServer::joinLoop() {handler_thread.join();}
@@ -117,14 +117,22 @@ void TcpServer::joinLoop() {handler_thread.join();}
 void TcpServer::handlingLoop() {
   // TODO: Rewrite this sh*t
   while (_status == status::up) {
+    std::mutex remove_thr_mtx;
     WIN(
           SOCKET client_socket;
           SOCKADDR_IN client_addr;
           int addrlen = sizeof(client_addr);
           if ((client_socket = accept(serv_socket, (struct sockaddr*)&client_addr, &addrlen)) != 0 && _status == status::up){
-            client_handler_threads.push_back(std::thread([this, &client_socket, &client_addr] {
+            client_handler_threads.push_back(std::thread([this,
+                                                         client_socket,
+                                                         client_addr,
+                                                         it = --client_handler_threads.end(),
+                                                         &remove_thr_mtx] () mutable {
               handler(Client(client_socket, client_addr, *this));
-              client_handling_end.push_back (std::this_thread::get_id());
+              ++it;
+              remove_thr_mtx.lock();
+              client_handler_threads.erase(it);
+              remove_thr_mtx.unlock();
             }));
           }
     )
@@ -134,22 +142,20 @@ void TcpServer::handlingLoop() {
           struct sockaddr_in client_addr;
           int addrlen = sizeof (struct sockaddr_in);
           if((client_socket = accept(serv_socket, (struct sockaddr*)&client_addr, (socklen_t*)&addrlen)) >= 0 && _status == status::up)
-            client_handler_threads.push_back(std::thread([this, &client_socket, &client_addr] {
+            client_handler_threads.push_back(std::thread([this,
+                                                         client_socket,
+                                                         client_addr,
+                                                         it = --client_handler_threads.end(),
+                                                         &remove_thr_mtx] () mutable {
               handler(Client(client_socket, client_addr, *this));
-              client_handling_end.push_back (std::this_thread::get_id());
+              ++it;
+              remove_thr_mtx.lock();
+              client_handler_threads.erase(it);
+              remove_thr_mtx.unlock();
             }));
     )
 
-    if(!client_handling_end.empty())
-      for(std::list<std::thread::id>::iterator id_it = client_handling_end.begin (); !client_handling_end.empty() ; id_it = client_handling_end.begin())
-        for(std::list<std::thread>::iterator thr_it = client_handler_threads.begin (); thr_it != client_handler_threads.end () ; ++thr_it)
-          if(thr_it->get_id () == *id_it) {
-            thr_it->join();
-            client_handler_threads.erase(thr_it);
-            client_handling_end.erase (id_it);
-            break;
-          }
-     std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
   }
 }
 
