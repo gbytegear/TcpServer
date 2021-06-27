@@ -5,6 +5,7 @@
 #include <functional>
 #include <thread>
 #include <list>
+#include <mutex>
 
 #ifdef _WIN32 // Windows NT
 
@@ -23,11 +24,19 @@
 
 #include "general.h"
 
+#ifdef _WIN32 // Windows NT
+typedef SOCKADDR_IN SocketAddr_in;
+typedef SOCKET Socket;
+#else // POSIX
+typedef struct sockaddr_in SocketAddr_in;
+typedef int Socket;
+#endif
+
 //#define buffer_size 4096
 
 struct TcpServer {
   class Client;
-  typedef std::function<void(Client)> handler_function_t;
+  typedef std::function<void(DataBuffer, Client&)> handler_function_t;
   enum class status : uint8_t {
     up = 0,
     err_socket_init = 1,
@@ -37,25 +46,29 @@ struct TcpServer {
   };
 
 private:
+  Socket serv_socket;
   uint16_t port;
   status _status = status::close;
+  double keep_alive_timeout;
   handler_function_t handler;
-
   std::thread handler_thread;
+
+  std::list<Client> client_list;
+  std::mutex client_mutex;
   std::list<std::thread> client_handler_threads;
+  std::mutex client_handler_mutex;
 
 #ifdef _WIN32 // Windows NT
-  SOCKET serv_socket = INVALID_SOCKET;
   WSAData w_data;
-#else // *nix
-  int serv_socket;
 #endif
 
   void handlingLoop();
-  void eventBasedHandlingLoop();
+  void clientHandler(std::list<Client>::iterator cur_client);
 
 public:
-  TcpServer(const uint16_t port, handler_function_t handler);
+  TcpServer(const uint16_t port,
+            handler_function_t handler,
+            double keep_alive_timeout = 120.);
   ~TcpServer();
 
   //! Set client handler
@@ -74,37 +87,20 @@ public:
 };
 
 class TcpServer::Client {
-  TcpServer& server;
-  Client* connected_to = nullptr;
-#ifdef _WIN32 // Windows NT
+  friend struct TcpServer;
 
-  typedef SOCKADDR_IN SocketAddr_in;
-  typedef SOCKET Socket;
-
-#else // *nix
-
-  typedef int SocketAddr_in;
-  typedef struct sockaddr_in Socket;
-
-#endif
-
+  std::mutex client_mtx;
   SocketAddr_in address;
   Socket socket;
-  char* buffer = nullptr;
+  std::time_t keep_alive_counter;
+
+  DataBuffer loadData();
 public:
-  Client(Socket socket, SocketAddr_in address, TcpServer& server);
-  Client(const Client& other);
+  Client(Socket socket, SocketAddr_in address);
+  Client(Client&& other);
   ~Client();
   uint32_t getHost() const;
   uint16_t getPort() const;
-
-  void connectTo(Client& other_client) const;
-  void waitConnect() const;
-
-  void clearData();
-  int loadData();
-  char* getData();
-  DataDescriptor waitData();
 
   bool sendData(const char* buffer, const size_t size) const;
 };

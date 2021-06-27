@@ -3,10 +3,11 @@
 
 #include <cstring>
 #include <cinttypes>
+#include <chrono>
 constexpr uint32_t LOCALHOST_IP = 0x0100007f;
 
-struct DataDescriptor {
-  size_t size;
+struct DataBuffer {
+  int size;
   void* data_ptr;
 };
 

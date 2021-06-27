@@ -78,10 +78,10 @@ int TcpClient::loadData() {
 }
 char* TcpClient::getData() {return buffer;}
 
-DataDescriptor TcpClient::waitData() {
+DataBuffer TcpClient::waitData() {
   int size = 0;
   while (!(size = loadData()));
-  return DataDescriptor{static_cast<size_t>(size), getData()};
+  return DataBuffer{size, getData()};
 }
 
 bool TcpClient::sendData(const char* buffer, const size_t size) const {

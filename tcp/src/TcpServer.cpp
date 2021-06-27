@@ -11,7 +11,7 @@
 #define NIX(exp) exp
 #endif
 
-TcpServer::TcpServer(const uint16_t port, handler_function_t handler) : port(port), handler(handler) {}
+TcpServer::TcpServer(const uint16_t port, handler_function_t handler, double keep_alive_timeout) : port(port), keep_alive_timeout(keep_alive_timeout), handler(handler) {}
 
 TcpServer::~TcpServer() {
   if(_status == status::up)
@@ -37,29 +37,16 @@ TcpServer::status TcpServer::restart() {
 	return start();
 }
 
-void TcpServer::Client::clearData() {
-  if(buffer) {
-    free(buffer);
-    buffer = nullptr;
+DataBuffer TcpServer::Client::loadData() {
+  DataBuffer buffer {0, nullptr};
+  recv(socket, &buffer.size, sizeof (buffer.size), MSG_DONTWAIT);
+  if(errno != EAGAIN) {
+    keep_alive_counter = time(nullptr);
+    if(!buffer.size) return {0, nullptr};
+    buffer.data_ptr = (char*)malloc(buffer.size);
+    recv(socket, buffer.data_ptr, buffer.size, 0);
   }
-}
-
-int TcpServer::Client::loadData() {
-  int size = 0;
-  recv(socket, reinterpret_cast<char*>(&size), sizeof (size), 0);
-  if(size) {
-    clearData();
-    buffer = (char*)malloc(size);
-    recv(socket, buffer, size, 0);
-  }
-  return size;
-}
-char* TcpServer::Client::getData() {return buffer;}
-
-DataDescriptor TcpServer::Client::waitData() {
-  int size = 0;
-  while (!(size = loadData()) && server.getStatus() == TcpServer::status::up);
-  return DataDescriptor{static_cast<size_t>(size), getData()};
+  return {0, nullptr};
 }
 
 bool TcpServer::Client::sendData(const char* buffer, const size_t size) const {
@@ -104,7 +91,7 @@ TcpServer::status TcpServer::start() {
 
 void TcpServer::stop() {
   _status = status::close;
-  WIN(closesocket (serv_socket);)
+  WIN(closesocket(serv_socket);)
   NIX(close(serv_socket);)
   joinLoop();
   for(std::thread& cl_thr : client_handler_threads)
@@ -115,56 +102,75 @@ void TcpServer::stop() {
 void TcpServer::joinLoop() {handler_thread.join();}
 
 void TcpServer::handlingLoop() {
-  // TODO: Rewrite this sh*t
+  const size_t addrlen = sizeof(SocketAddr_in);
   while (_status == status::up) {
-    std::mutex remove_thr_mtx;
-    WIN(
-          SOCKET client_socket;
-          SOCKADDR_IN client_addr;
-          int addrlen = sizeof(client_addr);
-          if ((client_socket = accept(serv_socket, (struct sockaddr*)&client_addr, &addrlen)) != 0 && _status == status::up){
-            client_handler_threads.push_back(std::thread([this,
-                                                         client_socket,
-                                                         client_addr,
-                                                         it = --client_handler_threads.end(),
-                                                         &remove_thr_mtx] () mutable {
-              handler(Client(client_socket, client_addr, *this));
-              ++it;
-              remove_thr_mtx.lock();
-              client_handler_threads.erase(it);
-              remove_thr_mtx.unlock();
-            }));
-          }
-    )
-
-    NIX(
-          int client_socket;
-          struct sockaddr_in client_addr;
-          int addrlen = sizeof (struct sockaddr_in);
-          if((client_socket = accept(serv_socket, (struct sockaddr*)&client_addr, (socklen_t*)&addrlen)) >= 0 && _status == status::up)
-            client_handler_threads.push_back(std::thread([this,
-                                                         client_socket,
-                                                         client_addr,
-                                                         it = --client_handler_threads.end(),
-                                                         &remove_thr_mtx] () mutable {
-              handler(Client(client_socket, client_addr, *this));
-              ++it;
-              remove_thr_mtx.lock();
-              client_handler_threads.erase(it);
-              remove_thr_mtx.unlock();
-            }));
-    )
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    SocketAddr_in client_addr;
+    if (Socket client_socket = accept(serv_socket, (struct sockaddr*)&client_addr, NIX((socklen_t*))&addrlen);
+        client_socket WIN(!= 0)NIX(>= 0) && _status == status::up) {
+      client_mutex.lock();
+      client_list.emplace_back(Client(client_socket, client_addr));
+      client_mutex.unlock();
+      if(client_handler_threads.empty())
+        client_handler_threads.emplace_back(std::thread([this]{clientHandler(client_list.begin());}));
+    }
   }
+
 }
 
-TcpServer::Client::Client(Socket socket, SocketAddr_in address, TcpServer& server) : server(server), address(address), socket(socket) {}
-TcpServer::Client::Client(const TcpServer::Client& other) : server(other.server), address(other.address), socket(other.socket) {}
+void TcpServer::clientHandler(std::list<Client>::iterator cur_client) {
+  std::thread::id this_thr_id = std::this_thread::get_id();
+
+  while(true) {
+    if(!cur_client->client_mtx.try_lock()) {
+      if(cur_client._M_node->_M_next)++cur_client;
+      else cur_client = client_list.begin();
+      continue;
+    }
+
+    if(DataBuffer data = cur_client->loadData(); data.size) {
+      client_handler_mutex.lock();
+      client_handler_threads.emplace_back([this, cur_client]()mutable{clientHandler(cur_client._M_node->_M_next? ++cur_client : client_list.begin());});
+      client_handler_mutex.unlock();
+      Client client = std::move(*cur_client);
+
+      handler(data, client);
+      client_mutex.lock();
+      client_list.erase(cur_client);
+      client_list.push_back(std::move(client));
+      client_mutex.unlock();
+      break;
+    } else if(std::difftime(std::time(nullptr), cur_client->keep_alive_counter) > keep_alive_timeout) {
+      std::list<Client>::iterator last = cur_client;
+      if(cur_client._M_node->_M_next)++cur_client;
+      else cur_client = client_list.begin();
+      client_mutex.lock();
+      client_list.erase(last);
+      client_mutex.unlock();
+      continue;
+    }
+  }
+
+  client_handler_mutex.lock();
+  for(auto it = client_handler_threads.begin(),
+      end = client_handler_threads.end();
+      it != end ;++it) if(it->get_id() == this_thr_id) {
+    client_handler_threads.erase(it);
+    break;
+  }
+  client_handler_mutex.unlock();
+
+}
+
+TcpServer::Client::Client(Socket socket, SocketAddr_in address)
+  : address(address), socket(socket), keep_alive_counter(time(nullptr)) {}
+TcpServer::Client::Client(Client&& other)
+  : address(other.address), socket(other.socket), keep_alive_counter(other.keep_alive_counter) {
+  other.socket = WIN(SOCKET_ERROR)NIX(-1);
+}
 
 
 TcpServer::Client::~Client() {
-  clearData();
+  if(socket == WIN(SOCKET_ERROR)NIX(-1)) return;
   shutdown(socket, 0);
   WIN(closesocket(socket);)
   NIX(close(socket);)
@@ -172,22 +178,4 @@ TcpServer::Client::~Client() {
 
 uint32_t TcpServer::Client::getHost() const {return NIX(address.sin_addr.s_addr) WIN(address.sin_addr.S_un.S_addr);}
 uint16_t TcpServer::Client::getPort() const {return address.sin_port;}
-
-void TcpServer::Client::connectTo(TcpServer::Client& other_client) const {
-  other_client.connected_to = const_cast<Client*>(this);
-  while(true) {
-    int size = other_client.loadData();
-    if(size == 0) return;
-    sendData(other_client.getData (), size);
-  }
-}
-
-void TcpServer::Client::waitConnect() const {
-  while (connected_to == nullptr && server.getStatus() == TcpServer::status::up);
-  while(server.getStatus() == TcpServer::status::up) {
-    int size = connected_to->loadData();
-    if(size == 0) return;
-    sendData(connected_to->getData (), size);
-  }
-}
 

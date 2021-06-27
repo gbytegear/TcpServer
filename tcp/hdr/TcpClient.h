@@ -54,7 +54,7 @@ public:
   void clearData();
 	int loadData();
 	char* getData();
-  DataDescriptor waitData();
+  DataBuffer waitData();
 
 
 	bool sendData(const char* buffer, const size_t size) const;
