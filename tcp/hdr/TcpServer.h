@@ -6,6 +6,7 @@
 #include <thread>
 #include <list>
 #include <mutex>
+#include <shared_mutex>
 
 #ifdef _WIN32 // Windows NT
 
@@ -54,7 +55,7 @@ private:
   std::thread handler_thread;
 
   std::list<Client> client_list;
-  std::mutex client_mutex;
+  std::shared_mutex client_mutex;
   std::list<std::thread> client_handler_threads;
   std::mutex client_handler_mutex;
 
