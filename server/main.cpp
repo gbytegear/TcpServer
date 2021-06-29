@@ -1,4 +1,5 @@
 #include "tcp/hdr/TcpServer.h"
+#include "tcp/hdr/TcpClient.h"
 
 #include <iostream>
 #include <mutex>
@@ -13,37 +14,48 @@ std::string getHostStr(const TcpServer::Client& client) {
             std::to_string( client.getPort ());
 }
 
+TcpServer server( 8080, [](DataBuffer data, TcpServer::Client& client){
+  std::cout << "("<<getHostStr(client)<<")[ " << data.size << " bytes ]: " << (char*)data.data_ptr << '\n';
+  client.sendData("Hello, client!", sizeof("Hello, client!"));
+});
+
+void testServer() {
+  //Start server
+  if(server.start() == TcpServer::status::up) {
+      std::cout<<"Server listen on port:"<<server.getPort()<<std::endl;
+  } else {
+      std::cout<<"Server start error! Error code:"<< int(server.getStatus()) <<std::endl;
+  }
+}
+
+void testClient() {
+  TcpClient client;
+  client.connectTo(LOCALHOST_IP, 8080);
+  client.sendData("Hello, server!", sizeof("Hello, server!"));
+  DataBuffer data = client.loadData();
+  std::cout << "Client[ " << data.size << " bytes ]: " << (const char*)data.data_ptr << '\n';
+}
+
+
 int main() {
+  try {
+  testServer();
+  testClient();
 
-    TcpServer::Client* wait_client = nullptr;
-    std::mutex mtx;
+  std::thread thr1(testClient);
+  std::thread thr2(testClient);
+  std::thread thr3(testClient);
+  std::thread thr4(testClient);
 
-    //Create object of TcpServer
-    TcpServer server( 8080,
-                      [&wait_client, &mtx](TcpServer::Client client){
-        mtx.lock();
-        if(wait_client == nullptr){ // Client 2 Client connection
-            wait_client = &client;
-            std::cout << "Client " << getHostStr(client) << " wait other client...\n";
-            mtx.unlock();
-            client.waitConnect();
-        } else {
-            TcpServer::Client* other_client = wait_client;
-            wait_client = nullptr;
-            std::cout << "Client " << getHostStr(client) << " connected to client " << getHostStr(*other_client) <<'\n';
-            mtx.unlock();
-            client.connectTo (*other_client);
-        }
-        std::cout << "Client pair disconnected" << std::endl;
-    });
 
-    //Start server
-    if(server.start() == TcpServer::status::up) {
-        std::cout<<"Server listen on port:"<<server.getPort()<<std::endl;
-        server.joinLoop();
-    } else {
-        std::cout<<"Server start error! Error code:"<< int(server.getStatus()) <<std::endl;
-        return -1;
-    }
+  thr1.join();
+  thr2.join();
+  thr3.join();
+  thr4.join();
 
+  while (true);
+  server.stop();
+  } catch(std::exception& except) {
+    std::cerr << except.what();
+  }
 }

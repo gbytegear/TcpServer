@@ -51,13 +51,9 @@ public:
 
 	status getStatus() {return _status;}
 
-  void clearData();
-	int loadData();
-	char* getData();
-  DataBuffer waitData();
+  DataBuffer loadData();
 
-
-	bool sendData(const char* buffer, const size_t size) const;
+  bool sendData(const void* buffer, const size_t size) const;
 };
 
 #endif // TCPCLIENT_H

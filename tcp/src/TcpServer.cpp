@@ -38,7 +38,7 @@ TcpServer::status TcpServer::restart() {
 }
 
 DataBuffer TcpServer::Client::loadData() {
-  DataBuffer buffer {0, nullptr};
+  DataBuffer buffer;
 
   // Read data length
   // MSG_DONTWAIT - Unix non-blocking read
@@ -48,15 +48,16 @@ DataBuffer TcpServer::Client::loadData() {
   // Read data
   if(NIX(errno != EAGAIN)WIN(readed_size != SOCKET_ERROR)) {
     keep_alive_counter = time(nullptr);
-    if(!buffer.size) return {0, nullptr};
+    if(!buffer.size) return DataBuffer();
     buffer.data_ptr = (char*)malloc(buffer.size);
     WIN(if(u_long t = false; SOCKET_ERROR == ioctlsocket(socket, FIONBIO, &t)) return buffer;) // Windows non-blocking mode off
     recv(socket, (char*)buffer.data_ptr, buffer.size, 0);
+    return buffer;
   } WIN(else if(int err = WSAGetLastError(); err != WSAEWOULDBLOCK){
     // TODO: Critical error handle
   })
 
-  return {0, nullptr};
+  return DataBuffer();
 }
 
 bool TcpServer::Client::sendData(const char* buffer, const size_t size) const {
@@ -104,9 +105,12 @@ void TcpServer::stop() {
   WIN(closesocket(serv_socket);)
   NIX(close(serv_socket);)
   joinLoop();
+  client_handler_mutex.lock();
   for(std::thread& cl_thr : client_handler_threads)
     cl_thr.join();
+  client_handler_mutex.unlock();
   client_handler_threads.clear();
+  client_list.clear();
 }
 
 void TcpServer::joinLoop() {handler_thread.join();}
@@ -130,12 +134,11 @@ void TcpServer::handlingLoop() {
 void TcpServer::clientHandler(std::list<Client>::iterator cur_client) {
   std::thread::id this_thr_id = std::this_thread::get_id();
 
-  while(true) {
+  while(_status == status::up) {
     // If client isn't handled now
     if(!cur_client->client_mtx.try_lock()) {
       client_mutex.lock_shared();
-      if(cur_client._M_node->_M_next)++cur_client;
-      else cur_client = client_list.begin();
+      if(++cur_client == client_list.end()) cur_client = client_list.begin();
       client_mutex.unlock_shared();
       continue;
     }
@@ -144,7 +147,7 @@ void TcpServer::clientHandler(std::list<Client>::iterator cur_client) {
       client_handler_mutex.lock();
       client_handler_threads.emplace_back([this, cur_client]()mutable{
         client_mutex.lock_shared();
-        std::list<Client>::iterator it = cur_client._M_node->_M_next? ++cur_client : client_list.begin();
+        std::list<Client>::iterator it = (++cur_client == client_list.end())? client_list.begin() : cur_client;
         client_mutex.unlock_shared();
         clientHandler(it);
       });
@@ -157,14 +160,12 @@ void TcpServer::clientHandler(std::list<Client>::iterator cur_client) {
       cur_client->client_mtx.unlock();
       client_list.splice(client_list.cend(), client_list, cur_client);
       client_mutex.unlock();
-      break;
 
     } else if(std::difftime(std::time(nullptr), cur_client->keep_alive_counter) > keep_alive_timeout) {
       std::list<Client>::iterator last = cur_client;
 
       client_mutex.lock_shared();
-      if(cur_client._M_node->_M_next)++cur_client;
-      else cur_client = client_list.begin();
+      if(++cur_client == client_list.end()) cur_client = client_list.begin();
       client_mutex.unlock_shared();
 
       client_mutex.lock();
@@ -174,16 +175,19 @@ void TcpServer::clientHandler(std::list<Client>::iterator cur_client) {
 
       continue;
     }
+
+    client_handler_mutex.lock();
+    for(auto it = client_handler_threads.begin(),
+        end = client_handler_threads.end();
+        it != end ;++it) if(it->get_id() == this_thr_id) {
+      it->detach();
+      client_handler_threads.erase(it);
+      break;
+    }
+    client_handler_mutex.unlock();
+
   }
 
-  client_handler_mutex.lock();
-  for(auto it = client_handler_threads.begin(),
-      end = client_handler_threads.end();
-      it != end ;++it) if(it->get_id() == this_thr_id) {
-    client_handler_threads.erase(it);
-    break;
-  }
-  client_handler_mutex.unlock();
 
 }
 
