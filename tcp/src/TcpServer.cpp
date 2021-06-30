@@ -131,16 +131,43 @@ void TcpServer::handlingLoop() {
 
 }
 
+
 void TcpServer::clientHandler(std::list<Client>::iterator cur_client) {
   std::thread::id this_thr_id = std::this_thread::get_id();
+
+  auto moveNextClient = [&cur_client, this]()->bool{
+    client_mutex.lock_shared();
+    if(++cur_client == client_list.end()) {
+      cur_client = client_list.begin();
+      if(cur_client == client_list.end()) {
+        client_mutex.unlock_shared();
+        return true;
+      }
+    }
+    client_mutex.unlock_shared();
+    return true;
+  };
+
+
+  auto removeThread = [&this_thr_id, this]() {
+    client_handler_mutex.lock();
+    for(auto it = client_handler_threads.begin(),
+        end = client_handler_threads.end();
+        it != end ;++it) if(it->get_id() == this_thr_id) {
+      it->detach();
+      client_handler_threads.erase(it);
+      client_handler_mutex.unlock();
+      return;
+    }
+    client_handler_mutex.unlock();
+  };
+
 
   while(_status == status::up) {
     // If client isn't handled now
     if(!cur_client->client_mtx.try_lock()) {
-      client_mutex.lock_shared();
-      if(++cur_client == client_list.end()) cur_client = client_list.begin();
-      client_mutex.unlock_shared();
-      continue;
+      if(moveNextClient()) continue;
+      else {removeThread(); return;}
     }
 
     if(DataBuffer data = cur_client->loadData(); data.size) {
@@ -174,17 +201,13 @@ void TcpServer::clientHandler(std::list<Client>::iterator cur_client) {
       client_mutex.unlock();
 
       continue;
+    } else {
+      if(moveNextClient()) continue;
+      else {removeThread(); return;}
     }
 
-    client_handler_mutex.lock();
-    for(auto it = client_handler_threads.begin(),
-        end = client_handler_threads.end();
-        it != end ;++it) if(it->get_id() == this_thr_id) {
-      it->detach();
-      client_handler_threads.erase(it);
-      break;
-    }
-    client_handler_mutex.unlock();
+    removeThread();
+    return;
 
   }
 

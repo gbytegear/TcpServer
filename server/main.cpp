@@ -17,7 +17,7 @@ std::string getHostStr(const TcpServer::Client& client) {
 TcpServer server( 8080, [](DataBuffer data, TcpServer::Client& client){
   std::cout << "("<<getHostStr(client)<<")[ " << data.size << " bytes ]: " << (char*)data.data_ptr << '\n';
   client.sendData("Hello, client!", sizeof("Hello, client!"));
-});
+}, 1);
 
 void testServer() {
   //Start server
@@ -38,9 +38,9 @@ void testClient() {
 
 
 int main() {
+  using namespace std::chrono_literals;
   try {
   testServer();
-  testClient();
 
   std::thread thr1(testClient);
   std::thread thr2(testClient);
@@ -53,7 +53,7 @@ int main() {
   thr3.join();
   thr4.join();
 
-  while (true);
+  std::this_thread::sleep_for(6s);
   server.stop();
   } catch(std::exception& except) {
     std::cerr << except.what();
