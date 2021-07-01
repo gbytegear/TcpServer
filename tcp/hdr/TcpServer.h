@@ -37,6 +37,7 @@ typedef int Socket;
 
 struct TcpServer {
   class Client;
+  class ClientList;
   typedef std::function<void(DataBuffer, Client&)> handler_function_t;
   enum class status : uint8_t {
     up = 0,
@@ -50,7 +51,7 @@ private:
   Socket serv_socket;
   uint16_t port;
   status _status = status::close;
-  double keep_alive_timeout;
+  std::time_t keep_alive_timeout;
   handler_function_t handler;
   std::thread handler_thread;
 
@@ -69,7 +70,7 @@ private:
 public:
   TcpServer(const uint16_t port,
             handler_function_t handler,
-            double keep_alive_timeout = 120.);
+            std::time_t keep_alive_timeout = 120.);
   ~TcpServer();
 
   //! Set client handler
@@ -106,6 +107,52 @@ public:
   bool sendData(const char* buffer, const size_t size) const;
 };
 
+class TcpServer::ClientList {
+  struct Node {
+    Node* next = nullptr;
+    Node* prev = nullptr;
+    Client client;
+  };
 
+  Node* first = nullptr;
+  Node* last = nullptr;
+
+public:
+
+  class iterator {
+    Node* pointer = nullptr;
+    iterator(Node* pointer) : pointer(pointer) {}
+    friend class TcpServer::ClientList;
+  public:
+    iterator(const iterator& other) : pointer(other.pointer) {}
+    iterator(iterator&& other) : pointer(other.pointer) {}
+    TcpServer::Client* operator->() const {return &pointer->client;}
+    TcpServer::Client& operator*() const {return pointer->client;}
+    iterator& operator++() {pointer = pointer->next; return *this;}
+    iterator& operator--() {pointer = pointer->prev; return *this;}
+    iterator operator++(int) {iterator last(pointer); pointer = pointer->next; return last;}
+    iterator operator--(int) {iterator last(pointer); pointer = pointer->prev; return last;}
+    bool operator==(iterator other) {return pointer == other.pointer;}
+    bool operator!=(iterator other) {return pointer != other.pointer;}
+  };
+
+//  iterator
+
+  bool isEmpty() {return first == nullptr;}
+  void extract(iterator it) {
+    if(it.pointer->prev) {
+      it.pointer->prev->next = it.pointer->next;
+      if(!it.pointer->prev->next) last = it.pointer->prev;
+    }
+    if(it.pointer->next) {
+      it.pointer->next->prev = it.pointer->prev;
+      if(!it.pointer->next->prev) first = it.pointer->next;
+    }
+  }
+  iterator begin() {return first;}
+  iterator end() {return nullptr;}
+
+
+};
 
 #endif // TCPSERVER_H

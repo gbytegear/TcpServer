@@ -11,7 +11,7 @@
 #define NIX(exp) exp
 #endif
 
-TcpServer::TcpServer(const uint16_t port, handler_function_t handler, double keep_alive_timeout) : port(port), keep_alive_timeout(keep_alive_timeout), handler(handler) {}
+TcpServer::TcpServer(const uint16_t port, handler_function_t handler, time_t keep_alive_timeout) : port(port), keep_alive_timeout(keep_alive_timeout), handler(handler) {}
 
 TcpServer::~TcpServer() {
   if(_status == status::up)
@@ -141,7 +141,7 @@ void TcpServer::clientHandler(std::list<Client>::iterator cur_client) {
       cur_client = client_list.begin();
       if(cur_client == client_list.end()) {
         client_mutex.unlock_shared();
-        return true;
+        return false;
       }
     }
     client_mutex.unlock_shared();
@@ -165,9 +165,12 @@ void TcpServer::clientHandler(std::list<Client>::iterator cur_client) {
 
   while(_status == status::up) {
     // If client isn't handled now
-    if(!cur_client->client_mtx.try_lock()) {
-      if(moveNextClient()) continue;
-      else {removeThread(); return;}
+    if(!cur_client->client_mtx.try_lock()) { // <--- Segmentation fault
+      if(moveNextClient()) continue;         // (Element has been deleted from other thread)
+      else {
+        removeThread();
+        return;
+      }
     }
 
     if(DataBuffer data = cur_client->loadData(); data.size) {
@@ -184,8 +187,8 @@ void TcpServer::clientHandler(std::list<Client>::iterator cur_client) {
       handler(data, client);
 
       client_mutex.lock();
-      cur_client->client_mtx.unlock();
       client_list.splice(client_list.cend(), client_list, cur_client);
+      cur_client->client_mtx.unlock();
       client_mutex.unlock();
 
     } else if(std::difftime(std::time(nullptr), cur_client->keep_alive_counter) > keep_alive_timeout) {
@@ -197,11 +200,12 @@ void TcpServer::clientHandler(std::list<Client>::iterator cur_client) {
 
       client_mutex.lock();
       last->client_mtx.unlock();
-      client_list.erase(last);
+      client_list.erase(last);  // <--- Deleted here
       client_mutex.unlock();
 
       continue;
     } else {
+      cur_client->client_mtx.unlock();
       if(moveNextClient()) continue;
       else {removeThread(); return;}
     }
