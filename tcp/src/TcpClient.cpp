@@ -48,6 +48,7 @@ TcpClient::status TcpClient::connectTo(uint32_t host, uint16_t port) noexcept {
 TcpClient::status TcpClient::disconnect() noexcept {
 	if(_status != status::connected)
 		return _status;
+  shutdown(client_socket, SD_BOTH);
   WINIX(closesocket(client_socket), close(client_socket));
   return _status = status::disconnected;
 }

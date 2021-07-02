@@ -17,7 +17,8 @@ std::string getHostStr(const TcpServer::Client& client) {
 TcpServer server( 8080, [](DataBuffer data, TcpServer::Client& client){
   std::cout << "("<<getHostStr(client)<<")[ " << data.size << " bytes ]: " << (char*)data.data_ptr << '\n';
   client.sendData("Hello, client!", sizeof("Hello, client!"));
-});
+},
+{1, 1, 1}); // Keep alive{idle:1s, interval: 1s, pk_count: 1}
 
 void testServer() {
   //Start server
@@ -31,9 +32,11 @@ void testServer() {
 void testClient() {
   TcpClient client;
   client.connectTo(LOCALHOST_IP, 8080);
-  client.sendData("Hello, server!", sizeof("Hello, server!"));
+//  for(int i = 0; i < 100; ++i)
+    client.sendData("Hello, server!", sizeof("Hello, server!"));
   DataBuffer data = client.loadData();
   std::cout << "Client[ " << data.size << " bytes ]: " << (const char*)data.data_ptr << '\n';
+  client.disconnect();
 }
 
 
@@ -43,18 +46,18 @@ int main() {
   testServer();
 
   std::thread thr1(testClient);
-  std::thread thr2(testClient);
-  std::thread thr3(testClient);
-  std::thread thr4(testClient);
+//  std::thread thr2(testClient);
+//  std::thread thr3(testClient);
+//  std::thread thr4(testClient);
 
 
   thr1.join();
-  thr2.join();
-  thr3.join();
-  thr4.join();
+//  thr2.join();
+//  thr3.join();
+//  thr4.join();
 
-  std::this_thread::sleep_for(6s);
-  server.stop();
+  std::this_thread::sleep_for(30s);
+//  server.stop();
   } catch(std::exception& except) {
     std::cerr << except.what();
   }

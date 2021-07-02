@@ -30,16 +30,18 @@
 typedef int SockLen_t;
 typedef SOCKADDR_IN SocketAddr_in;
 typedef SOCKET Socket;
+typedef u_long ka_prop_t;
 #else // POSIX
 typedef socklen_t SockLen_t;
 typedef struct sockaddr_in SocketAddr_in;
 typedef int Socket;
+typedef int ka_prop_t;
 #endif
 
 struct KeepAliveConfig{
-  int ka_idle = 120;
-  int ka_intvl = 3;
-  int ka_cnt = 5;
+  ka_prop_t ka_idle = 120;
+  ka_prop_t ka_intvl = 3;
+  ka_prop_t ka_cnt = 5;
 };
 
 struct TcpServer {
@@ -80,7 +82,8 @@ private:
 
 public:
   TcpServer(const uint16_t port,
-            handler_function_t handler);
+            handler_function_t handler,
+            KeepAliveConfig ka_conf = {});
   ~TcpServer();
 
   //! Set client handler
@@ -119,72 +122,5 @@ public:
 
   bool sendData(const char* buffer, const size_t size) const;
 };
-
-/*
-
-  *NIX
-
-#include <stdlib.h>
-#include <fcntl.h>
-#include <errno.h>
-#include <sys/socket.h>
-#include <netinet/tcp.h>
-#include <netinet/in.h>
-#include <netdb.h>
-#include <arpa/inet.h>
-
-int socket_set_keepalive (int fd) {
-  int ret, error, flag, alive, idle, cnt, intv;
-  / * Set: использовать keepalive на fd * /
-  alive = 1;
-  if (setsockopt of live, alive, SOL_SOCKET, LIVE, SOL_SOCKET, SO )! = 0)
-    log_warn ("Set keepalive error:% s. \ N", strerror (errno)); return -1;
-  / * Нет данных в течение 10 секунд, запустить механизм поддержки активности, отправить пакет keepalive * /
-  idle = 10;
-  if (setsockopt (fd, SOL_TCP, TCP_KEEPIDLE, & idle, sizeof idle)! = 0)
-    log_warn ("Установить ошибку ожидания keepalive:% s. \ n", strerror (errno));
-  / * Если ответ не получен, пакет поддержки активности будет повторно отправлен через 5 секунд * /
-  intv = 5;
-  if (setsockopt (fd, SOL_TCP, TCP_KEEPINTVL, & intv, sizeof intv)! = 0)
-    log_warn ("Set keepalive intv error:% s. \ n ", strerror (errno));
-  / * если * /
-  if(setsockopt (fd, SOL_TCP, TCP_KEEPCNT)
-  / * не получает пакет keep-alive 3 раза подряд, это рассматривается как сбой соединения * /
-  cnt = 3;
-  if (setsockopt (fd, SOL_TCP, TCP_KEEPCNT) , & cnt, sizeof cnt)! = 0)
-    log_warn ("Set keepalive cnt error:% s. \ n", strerror (errno));
-}
-
-// errno == ECONNRESET || errno == ETIMEDOUT
-
-
-  WINDOWS
-
-#include <winsock2.h>
-#include <mstcpip.h>
-
-int socket_set_keepalive (int fd)  {
-
-  struct tcp_keepalive kavars[1] = {
-    1,
-    10 * 1000, // 10 seconds
-    5 * 1000 //5 seconds
-  };
-  // Set: use keepalive on fd
-  alive = 1;
-  if (setsockopt (fd, SOL_SOCKET, SO_KEEPALIVE, (const char *) &alive, sizeof alive) != 0) {
-    log_warn ("Set keep alive error: %s.\n", strerror (errno));
-    return -1;
-  }
-  if(WSAIoctl(fd, SIO_KEEPALIVE_VALS, kavars, sizeof kavars, NULL, sizeof (int), &ret, NULL, NULL) != 0) {
-    log_warn ("Set keep alive error: %s.\n", strerror (WSAGetLastError ()));
-    return -1;
-  }
-  return 0;
-}
-
-// int errno = WSAGetLastError(); errno == WSAECONNRESET || errno == WSAETIMEDOUT
-
-*/
 
 #endif // TCPSERVER_H

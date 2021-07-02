@@ -6,12 +6,89 @@
 #ifdef _WIN32
 #define WIN(exp) exp
 #define NIX(exp)
+
+inline int convertError() {
+    switch (WSAGetLastError()) {
+    case 0:
+        return 0;
+    case WSAEINTR:
+        return EINTR;
+    case WSAEINVAL:
+        return EINVAL;
+    case WSA_INVALID_HANDLE:
+        return EBADF;
+    case WSA_NOT_ENOUGH_MEMORY:
+        return ENOMEM;
+    case WSA_INVALID_PARAMETER:
+        return EINVAL;
+    case WSAENAMETOOLONG:
+        return ENAMETOOLONG;
+    case WSAENOTEMPTY:
+        return ENOTEMPTY;
+    case WSAEWOULDBLOCK:
+         /* not using EWOULDBLOCK as we don't want code to have
+          * to check both EWOULDBLOCK and EAGAIN */
+        return EAGAIN;
+    case WSAEINPROGRESS:
+        return EINPROGRESS;
+    case WSAEALREADY:
+        return EALREADY;
+    case WSAENOTSOCK:
+        return ENOTSOCK;
+    case WSAEDESTADDRREQ:
+        return EDESTADDRREQ;
+    case WSAEMSGSIZE:
+        return EMSGSIZE;
+    case WSAEPROTOTYPE:
+        return EPROTOTYPE;
+    case WSAENOPROTOOPT:
+        return ENOPROTOOPT;
+    case WSAEPROTONOSUPPORT:
+        return EPROTONOSUPPORT;
+    case WSAEOPNOTSUPP:
+        return EOPNOTSUPP;
+    case WSAEAFNOSUPPORT:
+        return EAFNOSUPPORT;
+    case WSAEADDRINUSE:
+        return EADDRINUSE;
+    case WSAEADDRNOTAVAIL:
+        return EADDRNOTAVAIL;
+    case WSAENETDOWN:
+        return ENETDOWN;
+    case WSAENETUNREACH:
+        return ENETUNREACH;
+    case WSAENETRESET:
+        return ENETRESET;
+    case WSAECONNABORTED:
+        return ECONNABORTED;
+    case WSAECONNRESET:
+        return ECONNRESET;
+    case WSAENOBUFS:
+        return ENOBUFS;
+    case WSAEISCONN:
+        return EISCONN;
+    case WSAENOTCONN:
+        return ENOTCONN;
+    case WSAETIMEDOUT:
+        return ETIMEDOUT;
+    case WSAECONNREFUSED:
+        return ECONNREFUSED;
+    case WSAELOOP:
+        return ELOOP;
+    case WSAEHOSTUNREACH:
+        return EHOSTUNREACH;
+    default:
+        return EIO;
+    }
+}
+
+
 #else
 #define WIN(exp)
 #define NIX(exp) exp
 #endif
 
-TcpServer::TcpServer(const uint16_t port, handler_function_t handler) : port(port), handler(handler) {}
+TcpServer::TcpServer(const uint16_t port, handler_function_t handler, KeepAliveConfig ka_conf) : port(port), handler(handler), ka_conf(ka_conf) {}
 
 TcpServer::~TcpServer() {
   if(_status == status::up)
@@ -32,28 +109,30 @@ uint16_t TcpServer::setPort( const uint16_t port) {
 DataBuffer TcpServer::Client::loadData() {
   DataBuffer buffer;
 
-  // Read data length
+  // Read data length in non-blocking mode
   // MSG_DONTWAIT - Unix non-blocking read
   WIN(if(u_long t = true; SOCKET_ERROR == ioctlsocket(socket, FIONBIO, &t)) return DataBuffer();) // Windows non-blocking mode on
-  WIN(int readed_size =) recv(socket, (char*)&buffer.size, sizeof (buffer.size), NIX(MSG_DONTWAIT)WIN(0));
+  recv(socket, (char*)&buffer.size, sizeof (buffer.size), NIX(MSG_DONTWAIT)WIN(0));
   WIN(if(u_long t = false; SOCKET_ERROR == ioctlsocket(socket, FIONBIO, &t)) return DataBuffer();) // Windows non-blocking mode off
 
+  // Get last error
+  WIN(int err = convertError();)
+  NIX(int err = errno;)
+
   // Keep alive timeout
-  if(errno == ETIMEDOUT ||
-     errno == ECONNRESET) {
+  if(err == ETIMEDOUT ||
+     err == ECONNRESET) {
     _status = status::disconnected;
     return DataBuffer();
   }
 
   // Read data
-  if(NIX(errno != EAGAIN)WIN(readed_size != SOCKET_ERROR)) {
+  if(err != EAGAIN) {
     if(!buffer.size) return DataBuffer();
     buffer.data_ptr = (char*)malloc(buffer.size);
     recv(socket, (char*)buffer.data_ptr, buffer.size, 0);
     return buffer;
-  } WIN(else if(int err = WSAGetLastError(); err != WSAEWOULDBLOCK){
-    // TODO: Critical error handle
-  })
+  }
 
   return DataBuffer();
 }
@@ -80,11 +159,11 @@ TcpServer::status TcpServer::start() {
   address.sin_family = AF_INET;
 
 
-  if((serv_socket = socket(AF_INET, SOCK_STREAM, 0)) WIN(== SOCKET_ERROR)NIX(== -1))
+  if((serv_socket = socket(AF_INET, SOCK_STREAM, 0)) WIN(== INVALID_SOCKET)NIX(== -1))
      return _status = status::err_socket_init;
 
   flag = true;
-  if((setsockopt(serv_socket, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(flag)) == -1) ||
+  if((setsockopt(serv_socket, SOL_SOCKET, SO_REUSEADDR, WIN((char*))&flag, sizeof(flag)) == -1) ||
      (bind(serv_socket, (struct sockaddr*)&address, sizeof(address)) WIN(== SOCKET_ERROR)NIX(< 0)))
      return _status = status::err_socket_bind;
 
@@ -136,16 +215,19 @@ void TcpServer::handlingLoop() {
 }
 
 bool TcpServer::enableKeepAlive(Socket socket) {
-NIX(
   int flag = 1;
+#ifdef _WIN32
+  tcp_keepalive ka {1, ka_conf.ka_idle * 1000, ka_conf.ka_intvl * 1000};
+  if (setsockopt (socket, SOL_SOCKET, SO_KEEPALIVE, (const char *) &flag, sizeof(flag)) != 0) return false;
+  unsigned long numBytesReturned = 0;
+  if(WSAIoctl(socket, SIO_KEEPALIVE_VALS, &ka, sizeof (ka), nullptr, 0, &numBytesReturned, 0, nullptr) != 0) return false;
+#else //POSIX
   if(setsockopt(socket, SOL_SOCKET, SO_KEEPALIVE, &flag, sizeof(flag)) == -1) return false;
   if(setsockopt(socket, IPPROTO_TCP, TCP_KEEPIDLE, &ka_conf.ka_idle, sizeof(ka_conf.ka_idle)) == -1) return false;
   if(setsockopt(socket, IPPROTO_TCP, TCP_KEEPINTVL, &ka_conf.ka_intvl, sizeof(ka_conf.ka_intvl)) == -1) return false;
   if(setsockopt(socket, IPPROTO_TCP, TCP_KEEPCNT, &ka_conf.ka_cnt, sizeof(ka_conf.ka_cnt)) == -1) return false;
+#endif
   return true;
-)WIN(
-  return false; // TODO: Windows support
-)
 }
 
 
@@ -196,9 +278,8 @@ void TcpServer::clientHandler(std::list<Client>::iterator cur_client) {
         clientHandler(it);
       });
       client_handler_mutex.unlock();
-      Client client = std::move(*cur_client);
 
-      handler(data, client);
+      handler(data, *cur_client);
 
       client_mutex.lock();
       client_list.splice(client_list.cend(), client_list, cur_client);
@@ -206,6 +287,9 @@ void TcpServer::clientHandler(std::list<Client>::iterator cur_client) {
       client_mutex.unlock();
 
     } else {
+      if(cur_client->_status == SocketStatus::disconnected) {
+        // Remove client
+      }
       cur_client->access_mtx.unlock();
       if(moveNextClient()) continue;
       else {removeThread(); return;}
@@ -229,7 +313,7 @@ TcpServer::Client::Client(Client&& other)
 
 TcpServer::Client::~Client() {
   if(socket == WIN(INVALID_SOCKET)NIX(-1)) return;
-  shutdown(socket, 0);
+  shutdown(socket, SD_BOTH);
   WIN(closesocket(socket);)
   NIX(close(socket);)
 }
