@@ -11,14 +11,12 @@
 #define NIX(exp) exp
 #endif
 
-TcpServer::TcpServer(const uint16_t port, handler_function_t handler, time_t keep_alive_timeout) : port(port), keep_alive_timeout(keep_alive_timeout), handler(handler) {}
+TcpServer::TcpServer(const uint16_t port, handler_function_t handler) : port(port), handler(handler) {}
 
 TcpServer::~TcpServer() {
   if(_status == status::up)
 	stop();
-#ifdef _WIN32 // Windows NT
-	WSACleanup ();
-#endif
+	WIN(WSACleanup());
 }
 
 
@@ -27,14 +25,8 @@ void TcpServer::setHandler(TcpServer::handler_function_t handler) {this->handler
 uint16_t TcpServer::getPort() const {return port;}
 uint16_t TcpServer::setPort( const uint16_t port) {
 	this->port = port;
-	restart();
+	start();
 	return port;
-}
-
-TcpServer::status TcpServer::restart() {
-	if(_status == status::up)
-	  stop ();
-	return start();
 }
 
 DataBuffer TcpServer::Client::loadData() {
@@ -42,15 +34,21 @@ DataBuffer TcpServer::Client::loadData() {
 
   // Read data length
   // MSG_DONTWAIT - Unix non-blocking read
-  WIN(if(u_long t = true; SOCKET_ERROR == ioctlsocket(socket, FIONBIO, &t)) return buffer;) // Windows non-blocking mode on
-  WIN(int readed_size = )recv(socket, (char*)&buffer.size, sizeof (buffer.size), NIX(MSG_DONTWAIT)WIN(0));
+  WIN(if(u_long t = true; SOCKET_ERROR == ioctlsocket(socket, FIONBIO, &t)) return DataBuffer();) // Windows non-blocking mode on
+  WIN(int readed_size =) recv(socket, (char*)&buffer.size, sizeof (buffer.size), NIX(MSG_DONTWAIT)WIN(0));
+  WIN(if(u_long t = false; SOCKET_ERROR == ioctlsocket(socket, FIONBIO, &t)) return DataBuffer();) // Windows non-blocking mode off
+
+  // Keep alive timeout
+  if(errno == ETIMEDOUT ||
+     errno == ECONNRESET) {
+    _status = status::disconnected;
+    return DataBuffer();
+  }
 
   // Read data
   if(NIX(errno != EAGAIN)WIN(readed_size != SOCKET_ERROR)) {
-    keep_alive_counter = time(nullptr);
     if(!buffer.size) return DataBuffer();
     buffer.data_ptr = (char*)malloc(buffer.size);
-    WIN(if(u_long t = false; SOCKET_ERROR == ioctlsocket(socket, FIONBIO, &t)) return buffer;) // Windows non-blocking mode off
     recv(socket, (char*)buffer.data_ptr, buffer.size, 0);
     return buffer;
   } WIN(else if(int err = WSAGetLastError(); err != WSAEWOULDBLOCK){
@@ -71,30 +69,27 @@ bool TcpServer::Client::sendData(const char* buffer, const size_t size) const {
 
 
 TcpServer::status TcpServer::start() {
-  WIN(
-        if(WSAStartup(MAKEWORD(2, 2), &w_data) == 0) {}
-        SOCKADDR_IN address;
-        address.sin_addr.S_un.S_addr = INADDR_ANY;
-        address.sin_port = htons(port);
-        address.sin_family = AF_INET;
+  int flag;
+  if(_status == status::up) stop();
 
-        if(static_cast<int>(serv_socket = socket(AF_INET, SOCK_STREAM, 0)) == SOCKET_ERROR) return _status = status::err_socket_init;
-        if(bind(serv_socket, (struct sockaddr*)&address, sizeof(address)) == SOCKET_ERROR) return _status = status::err_socket_bind;
-        if(listen(serv_socket, SOMAXCONN) == SOCKET_ERROR) return _status = status::err_socket_listening;
-  )
+  WIN(if(WSAStartup(MAKEWORD(2, 2), &w_data) == 0) {})
+  SocketAddr_in address;
+  address.sin_addr
+      WIN(.S_un.S_addr)NIX(.s_addr) = INADDR_ANY;
+  address.sin_port = htons(port);
+  address.sin_family = AF_INET;
 
-  NIX(
-        struct sockaddr_in server;
-        server.sin_addr.s_addr = INADDR_ANY;
-        server.sin_port = htons( port );
-        server.sin_family = AF_INET;
-        serv_socket = socket(AF_INET, SOCK_STREAM, 0);
 
-        if(serv_socket == -1) return _status = status::err_socket_init;
-        if(bind(serv_socket,(struct sockaddr *)&server , sizeof(server)) < 0) return _status = status::err_socket_bind;
-        if(listen(serv_socket, 3) < 0)return _status = status::err_socket_listening;
-  )
+  if((serv_socket = socket(AF_INET, SOCK_STREAM, 0)) WIN(== SOCKET_ERROR)NIX(== -1))
+     return _status = status::err_socket_init;
 
+  flag = true;
+  if((setsockopt(serv_socket, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(flag)) == -1) ||
+     (bind(serv_socket, (struct sockaddr*)&address, sizeof(address)) WIN(== SOCKET_ERROR)NIX(< 0)))
+     return _status = status::err_socket_bind;
+
+  if(listen(serv_socket, SOMAXCONN) WIN(== SOCKET_ERROR)NIX(< 0))
+    return _status = status::err_socket_listening;
   _status = status::up;
   handler_thread = std::thread([this]{handlingLoop();});
   return _status;
@@ -102,8 +97,8 @@ TcpServer::status TcpServer::start() {
 
 void TcpServer::stop() {
   _status = status::close;
-  WIN(closesocket(serv_socket);)
-  NIX(close(serv_socket);)
+  WIN(closesocket)NIX(close)(serv_socket);
+
   joinLoop();
   client_handler_mutex.lock();
   for(std::thread& cl_thr : client_handler_threads)
@@ -116,11 +111,20 @@ void TcpServer::stop() {
 void TcpServer::joinLoop() {handler_thread.join();}
 
 void TcpServer::handlingLoop() {
-  NIX(const socklen_t)WIN(int) addrlen = sizeof(SocketAddr_in);
+  SockLen_t addrlen = sizeof(SocketAddr_in);
   while (_status == status::up) {
     SocketAddr_in client_addr;
     if (Socket client_socket = accept(serv_socket, (struct sockaddr*)&client_addr, &addrlen);
         client_socket WIN(!= 0)NIX(>= 0) && _status == status::up) {
+
+      if(client_socket == WIN(INVALID_SOCKET)NIX(-1)) continue;
+
+      // Enable keep alive for client
+      if(!enableKeepAlive(client_socket)) {
+        shutdown(client_socket, 0);
+        WIN(closesocket)NIX(close)(client_socket);
+      }
+
       client_mutex.lock();
       client_list.emplace_back(Client(client_socket, client_addr));
       client_mutex.unlock();
@@ -131,6 +135,19 @@ void TcpServer::handlingLoop() {
 
 }
 
+bool TcpServer::enableKeepAlive(Socket socket) {
+NIX(
+  int flag = 1;
+  if(setsockopt(socket, SOL_SOCKET, SO_KEEPALIVE, &flag, sizeof(flag)) == -1) return false;
+  if(setsockopt(socket, IPPROTO_TCP, TCP_KEEPIDLE, &ka_conf.ka_idle, sizeof(ka_conf.ka_idle)) == -1) return false;
+  if(setsockopt(socket, IPPROTO_TCP, TCP_KEEPINTVL, &ka_conf.ka_intvl, sizeof(ka_conf.ka_intvl)) == -1) return false;
+  if(setsockopt(socket, IPPROTO_TCP, TCP_KEEPCNT, &ka_conf.ka_cnt, sizeof(ka_conf.ka_cnt)) == -1) return false;
+  return true;
+)WIN(
+  return false; // TODO: Windows support
+)
+}
+
 
 void TcpServer::clientHandler(std::list<Client>::iterator cur_client) {
   std::thread::id this_thr_id = std::this_thread::get_id();
@@ -139,7 +156,7 @@ void TcpServer::clientHandler(std::list<Client>::iterator cur_client) {
     client_mutex.lock_shared();
     if(++cur_client == client_list.end()) {
       cur_client = client_list.begin();
-      if(cur_client == client_list.end()) {
+      if(cur_client == client_list.end()) { // if list is empty
         client_mutex.unlock_shared();
         return false;
       }
@@ -165,12 +182,9 @@ void TcpServer::clientHandler(std::list<Client>::iterator cur_client) {
 
   while(_status == status::up) {
     // If client isn't handled now
-    if(!cur_client->client_mtx.try_lock()) { // <--- Segmentation fault
+    if(!cur_client->access_mtx.try_lock()) { // <--- Segmentation fault
       if(moveNextClient()) continue;         // (Element has been deleted from other thread)
-      else {
-        removeThread();
-        return;
-      }
+      else { removeThread(); return; }
     }
 
     if(DataBuffer data = cur_client->loadData(); data.size) {
@@ -188,24 +202,11 @@ void TcpServer::clientHandler(std::list<Client>::iterator cur_client) {
 
       client_mutex.lock();
       client_list.splice(client_list.cend(), client_list, cur_client);
-      cur_client->client_mtx.unlock();
+      cur_client->access_mtx.unlock();
       client_mutex.unlock();
 
-    } else if(std::difftime(std::time(nullptr), cur_client->keep_alive_counter) > keep_alive_timeout) {
-      std::list<Client>::iterator last = cur_client;
-
-      client_mutex.lock_shared();
-      if(++cur_client == client_list.end()) cur_client = client_list.begin();
-      client_mutex.unlock_shared();
-
-      client_mutex.lock();
-      last->client_mtx.unlock();
-      client_list.erase(last);  // <--- Deleted here
-      client_mutex.unlock();
-
-      continue;
     } else {
-      cur_client->client_mtx.unlock();
+      cur_client->access_mtx.unlock();
       if(moveNextClient()) continue;
       else {removeThread(); return;}
     }
@@ -219,9 +220,9 @@ void TcpServer::clientHandler(std::list<Client>::iterator cur_client) {
 }
 
 TcpServer::Client::Client(Socket socket, SocketAddr_in address)
-  : address(address), socket(socket), keep_alive_counter(time(nullptr)) {}
+  : address(address), socket(socket) {}
 TcpServer::Client::Client(Client&& other)
-  : client_mtx(), address(other.address), socket(other.socket), keep_alive_counter(other.keep_alive_counter) {
+  : access_mtx(), address(other.address), socket(other.socket) {
   other.socket = WIN(SOCKET_ERROR)NIX(-1);
 }
 

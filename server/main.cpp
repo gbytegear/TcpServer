@@ -17,7 +17,7 @@ std::string getHostStr(const TcpServer::Client& client) {
 TcpServer server( 8080, [](DataBuffer data, TcpServer::Client& client){
   std::cout << "("<<getHostStr(client)<<")[ " << data.size << " bytes ]: " << (char*)data.data_ptr << '\n';
   client.sendData("Hello, client!", sizeof("Hello, client!"));
-}, 1);
+});
 
 void testServer() {
   //Start server
