@@ -67,7 +67,7 @@ private:
   KeepAliveConfig ka_conf;
 
   // Client & Client handling
-  std::list<Client> client_list;
+  std::list<std::unique_ptr<Client>> client_list;
   std::shared_mutex client_mutex;
   std::list<std::thread> client_handler_threads;
   std::mutex client_handler_mutex;
@@ -78,7 +78,7 @@ private:
 
   void handlingLoop();
   bool enableKeepAlive(Socket socket);
-  void clientHandler(std::list<Client>::iterator cur_client);
+  void clientHandler(std::list<std::unique_ptr<Client>>::iterator cur);
 
 public:
   TcpServer(const uint16_t port,
@@ -108,11 +108,15 @@ private:
   friend struct TcpServer;
 
   std::mutex access_mtx;
+  std::mutex move_next_mtx;
   SocketAddr_in address;
   Socket socket;
   status _status = status::connected;
 
   DataBuffer loadData();
+  void disconnect();
+
+
 public:
   Client(Socket socket, SocketAddr_in address);
   Client(Client&& other);

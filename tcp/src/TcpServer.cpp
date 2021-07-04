@@ -106,35 +106,67 @@ uint16_t TcpServer::setPort( const uint16_t port) {
 	return port;
 }
 
+#include <iostream>
+
 DataBuffer TcpServer::Client::loadData() {
+  using namespace std::chrono_literals;
   DataBuffer buffer;
 
   // Read data length in non-blocking mode
   // MSG_DONTWAIT - Unix non-blocking read
   WIN(if(u_long t = true; SOCKET_ERROR == ioctlsocket(socket, FIONBIO, &t)) return DataBuffer();) // Windows non-blocking mode on
-  recv(socket, (char*)&buffer.size, sizeof (buffer.size), NIX(MSG_DONTWAIT)WIN(0));
+  int answ = recv(socket, (char*)&buffer.size, sizeof (buffer.size), NIX(MSG_DONTWAIT)WIN(0));
   WIN(if(u_long t = false; SOCKET_ERROR == ioctlsocket(socket, FIONBIO, &t)) return DataBuffer();) // Windows non-blocking mode off
 
-  // Get last error
-  WIN(int err = convertError();)
-  NIX(int err = errno;)
-
-  // Keep alive timeout
-  if(err == ETIMEDOUT ||
-     err == ECONNRESET) {
-    _status = status::disconnected;
+  // Disconnect
+  if(!answ) {
+    disconnect();
     return DataBuffer();
   }
 
-  // Read data
-  if(err != EAGAIN) {
-    if(!buffer.size) return DataBuffer();
-    buffer.data_ptr = (char*)malloc(buffer.size);
-    recv(socket, (char*)buffer.data_ptr, buffer.size, 0);
-    return buffer;
+  // Get last error
+  int err;
+  SockLen_t len = sizeof (err);
+  getsockopt (socket, SOL_SOCKET, SO_ERROR, &err, &len);
+  if(err) {std::clog << "Code: " << err << " Err: " << std::strerror(err) << '\n'; std::this_thread::sleep_for(1s);}
+  switch (err) {
+    case 0: break;
+    // Keep alive timeout
+    case ETIMEDOUT:
+    case ECONNRESET:
+    case EPIPE:
+      disconnect();
+    return DataBuffer();
+    default:
+      std::cerr << "Unhandled error!\n"
+                << "Code: " << err << " Err: " << std::strerror(err) << '\n';
+    return DataBuffer();
   }
 
-  return DataBuffer();
+  WIN(err = convertError();)
+  NIX(err = errno;)
+  switch (err) {
+    case 0: break;
+    // No data
+    case EAGAIN: return DataBuffer();
+    default:
+      std::cerr << "Unhandled error!\n"
+                << "Code: " << err << " Err: " << std::strerror(err) << '\n';
+    return DataBuffer();
+  }
+
+  if(!buffer.size) return DataBuffer();
+  buffer.data_ptr = (char*)malloc(buffer.size);
+  recv(socket, (char*)buffer.data_ptr, buffer.size, 0);
+  return buffer;
+}
+
+void TcpServer::Client::disconnect() {
+  _status = status::disconnected;
+  if(socket == WIN(INVALID_SOCKET)NIX(-1)) return;
+  shutdown(socket, SD_BOTH);
+  WIN(closesocket)NIX(close)(socket);
+  socket = WIN(INVALID_SOCKET)NIX(-1);
 }
 
 bool TcpServer::Client::sendData(const char* buffer, const size_t size) const {
@@ -205,7 +237,7 @@ void TcpServer::handlingLoop() {
       }
 
       client_mutex.lock();
-      client_list.emplace_back(Client(client_socket, client_addr));
+      client_list.emplace_back(new Client(client_socket, client_addr));
       client_mutex.unlock();
       if(client_handler_threads.empty())
         client_handler_threads.emplace_back(std::thread([this]{clientHandler(client_list.begin());}));
@@ -231,19 +263,19 @@ bool TcpServer::enableKeepAlive(Socket socket) {
 }
 
 
-void TcpServer::clientHandler(std::list<Client>::iterator cur_client) {
+void TcpServer::clientHandler(std::list<std::unique_ptr<Client>>::iterator cur) {
   std::thread::id this_thr_id = std::this_thread::get_id();
 
-  auto moveNextClient = [&cur_client, this]()->bool{
-    client_mutex.lock_shared();
-    if(++cur_client == client_list.end()) {
-      cur_client = client_list.begin();
-      if(cur_client == client_list.end()) { // if list is empty
-        client_mutex.unlock_shared();
+  auto moveToNextClient = [this, &cur, &next_mtx = (*cur)->move_next_mtx]()->bool{
+    next_mtx.lock();
+    if(++cur == client_list.end()) {
+      cur = client_list.begin();
+      if(cur == client_list.end()) { // if list is empty
+        next_mtx.unlock();
         return false;
       }
     }
-    client_mutex.unlock_shared();
+    next_mtx.unlock();
     return true;
   };
 
@@ -263,35 +295,55 @@ void TcpServer::clientHandler(std::list<Client>::iterator cur_client) {
 
 
   while(_status == status::up) {
-    // If client isn't handled now
-    if(!cur_client->access_mtx.try_lock()) { // <--- Segmentation fault
-      if(moveNextClient()) continue;         // (Element has been deleted from other thread)
+    // TODO: Fix error cases:
+    // * Case if client_list.length() == 1;
+    // * Case if cur == client_list.begin();
+
+    if(!*cur) { // If client element is remove
+      if(moveToNextClient()) continue;
+      else { removeThread(); return; }
+    } else if(!(*cur)->access_mtx.try_lock()) { // If client is handle now from other thread
+      if(moveToNextClient()) continue;
       else { removeThread(); return; }
     }
 
-    if(DataBuffer data = cur_client->loadData(); data.size) {
+    if(DataBuffer data = (*cur)->loadData(); data.size) {
       client_handler_mutex.lock();
-      client_handler_threads.emplace_back([this, cur_client]()mutable{
+      client_handler_threads.emplace_back([this, cur]()mutable{
         client_mutex.lock_shared();
-        std::list<Client>::iterator it = (++cur_client == client_list.end())? client_list.begin() : cur_client;
+        auto it = (++cur == client_list.end())? client_list.begin() : cur;
         client_mutex.unlock_shared();
         clientHandler(it);
       });
       client_handler_mutex.unlock();
 
-      handler(data, *cur_client);
+      handler(data, **cur);
 
       client_mutex.lock();
-      client_list.splice(client_list.cend(), client_list, cur_client);
-      cur_client->access_mtx.unlock();
+      client_list.splice(client_list.cend(), client_list, cur);
+      (*cur)->access_mtx.unlock();
       client_mutex.unlock();
 
     } else {
-      if(cur_client->_status == SocketStatus::disconnected) {
-        // Remove client
+
+      // Remove disconnected client
+      if((*cur)->_status == SocketStatus::disconnected) {
+        auto last_cur = cur;
+        auto prev = cur;
+        (*--prev)->move_next_mtx.lock();
+        std::unique_ptr<Client> client(std::move(*cur));
+        bool move_res = moveToNextClient();
+        client->access_mtx.unlock();
+        client.reset();
+        client_list.erase(last_cur);
+        (*prev)->move_next_mtx.unlock();
+        if(move_res) continue;
+        else {removeThread(); return;}
       }
-      cur_client->access_mtx.unlock();
-      if(moveNextClient()) continue;
+
+      // Move to next client
+      (*cur)->access_mtx.unlock();
+      if(moveToNextClient()) continue;
       else {removeThread(); return;}
     }
 

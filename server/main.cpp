@@ -24,40 +24,32 @@ void testServer() {
   //Start server
   if(server.start() == TcpServer::status::up) {
       std::cout<<"Server listen on port:"<<server.getPort()<<std::endl;
+      server.joinLoop();
   } else {
       std::cout<<"Server start error! Error code:"<< int(server.getStatus()) <<std::endl;
   }
 }
 
-void testClient() {
-  TcpClient client;
-  client.connectTo(LOCALHOST_IP, 8080);
-//  for(int i = 0; i < 100; ++i)
-    client.sendData("Hello, server!", sizeof("Hello, server!"));
-  DataBuffer data = client.loadData();
-  std::cout << "Client[ " << data.size << " bytes ]: " << (const char*)data.data_ptr << '\n';
-  client.disconnect();
-}
+//void testClient() {
+//  TcpClient client;
+//  client.connectTo(LOCALHOST_IP, 8080);
+//  client.sendData("Hello, server!", sizeof("Hello, server!"));
+//  DataBuffer data = client.loadData();
+//  std::cout << "Client[ " << data.size << " bytes ]: " << (const char*)data.data_ptr << '\n';
+//}
 
 
 int main() {
   using namespace std::chrono_literals;
   try {
   testServer();
+//  std::thread thr1(testClient);
 
-  std::thread thr1(testClient);
-//  std::thread thr2(testClient);
-//  std::thread thr3(testClient);
-//  std::thread thr4(testClient);
+//  thr1.join();
 
 
-  thr1.join();
-//  thr2.join();
-//  thr3.join();
-//  thr4.join();
 
   std::this_thread::sleep_for(30s);
-//  server.stop();
   } catch(std::exception& except) {
     std::cerr << except.what();
   }

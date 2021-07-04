@@ -14,66 +14,13 @@ std::string getHostStr(uint32_t ip, uint16_t port) {
             std::to_string( port );
 }
 
-void clearConsole() {
-#ifdef _WIN32
-    system("cls");
-#else
-    system("clear");
-#endif
-}
-
-std::string msgs;
-
-void printInMsg(std::string msg) {
-    clearConsole();
-    msgs += "<<" + msg + '\n';
-    std::cout<<msgs;
-}
-
-void printOutMsg(std::string& msg) {
-    clearConsole();
-    msgs += ">>" + msg + '\n';
-    std::cout<<msgs;
-}
-
 int main() {
-    TcpClient client;
-
-    uint32_t host;
-    uint16_t port;
-
-    std::string host_str;
-    std::cout<<"Enter host:";
-    std::cin>>host_str;
-    host = inet_addr(host_str.c_str());
-    clearConsole();
-    std::cout<<host_str<<':';
-    std::cin>>port;
-    clearConsole();
-
-    std::cout << "Try connect to: " << host_str <<':'<< to_string (port)<< std::endl;
-
-    if(client.connectTo(host, port) == TcpClient::status::connected) {
-        std::cout << "Connected to: " << getHostStr (localhost, 8080) << std::endl;
-
-        std::thread distant_msg([&client](){
-            while(true) {
-                int size = client.loadData();
-                if(size == 0) {
-                    cout << "Disconnected";
-                    std::exit (0);
-                }
-                printInMsg (client.getData());
-            }
-        });
-
-        while(true) {
-            std::string message;
-            getline(cin, message, '\n');
-            client.sendData (message.c_str(), message.length() + 1);
-            printOutMsg (message);
-        }
-    } else {
-        std::cout<<"Error! Client isn't connected! Error code: " << int(client.getStatus ()) << std::endl;
-    }
+  using namespace std::chrono_literals;
+  TcpClient client;
+  client.connectTo(LOCALHOST_IP, 8080);
+  client.sendData("Hello, server!", sizeof("Hello, server!"));
+  DataBuffer data = client.loadData();
+  std::cout << "Client[ " << data.size << " bytes ]: " << (const char*)data.data_ptr << '\n';
+  std::this_thread::sleep_for(5s);
+  std::clog << "Socket closed!\n";
 }

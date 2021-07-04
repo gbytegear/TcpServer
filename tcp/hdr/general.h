@@ -1,6 +1,12 @@
 #ifndef GENERAL_H
 #define GENERAL_H
 
+#ifdef _WIN32
+#else
+#define SD_BOTH 0
+#endif
+
+
 #include <cstdint>
 #include <cstring>
 #include <cinttypes>
