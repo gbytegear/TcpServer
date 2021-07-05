@@ -26,8 +26,6 @@ inline int convertError() {
     case WSAENOTEMPTY:
         return ENOTEMPTY;
     case WSAEWOULDBLOCK:
-         /* not using EWOULDBLOCK as we don't want code to have
-          * to check both EWOULDBLOCK and EAGAIN */
         return EAGAIN;
     case WSAEINPROGRESS:
         return EINPROGRESS;
@@ -111,12 +109,12 @@ uint16_t TcpServer::setPort( const uint16_t port) {
 DataBuffer TcpServer::Client::loadData() {
   using namespace std::chrono_literals;
   DataBuffer buffer;
+  int err;
 
   // Read data length in non-blocking mode
   // MSG_DONTWAIT - Unix non-blocking read
   WIN(if(u_long t = true; SOCKET_ERROR == ioctlsocket(socket, FIONBIO, &t)) return DataBuffer();) // Windows non-blocking mode on
   int answ = recv(socket, (char*)&buffer.size, sizeof (buffer.size), NIX(MSG_DONTWAIT)WIN(0));
-  WIN(if(u_long t = false; SOCKET_ERROR == ioctlsocket(socket, FIONBIO, &t)) return DataBuffer();) // Windows non-blocking mode off
 
   // Disconnect
   if(!answ) {
@@ -124,34 +122,28 @@ DataBuffer TcpServer::Client::loadData() {
     return DataBuffer();
   }
 
-  // Get last error
-  int err;
-  SockLen_t len = sizeof (err);
-  getsockopt (socket, SOL_SOCKET, SO_ERROR, &err, &len);
-  if(err) {std::clog << "Code: " << err << " Err: " << std::strerror(err) << '\n'; std::this_thread::sleep_for(1s);}
+  // Error handle
+  WIN(err = convertError();)
+  NIX(err = errno;)
+  if(!err) {
+    SockLen_t len = sizeof (err);
+    getsockopt (socket, SOL_SOCKET, SO_ERROR, WIN((char*))&err, &len);
+  }
+  WIN(if(u_long t = false; SOCKET_ERROR == ioctlsocket(socket, FIONBIO, &t)) return DataBuffer();) // Windows non-blocking mode off
+
   switch (err) {
     case 0: break;
-    // Keep alive timeout
+      // Keep alive timeout
     case ETIMEDOUT:
     case ECONNRESET:
     case EPIPE:
       disconnect();
-    return DataBuffer();
-    default:
-      std::cerr << "Unhandled error!\n"
-                << "Code: " << err << " Err: " << std::strerror(err) << '\n';
-    return DataBuffer();
-  }
-
-  WIN(err = convertError();)
-  NIX(err = errno;)
-  switch (err) {
-    case 0: break;
-    // No data
+      // No data
     case EAGAIN: return DataBuffer();
     default:
+      disconnect();
       std::cerr << "Unhandled error!\n"
-                << "Code: " << err << " Err: " << std::strerror(err) << '\n';
+                  << "Code: " << err << " Err: " << std::strerror(err) << '\n';
     return DataBuffer();
   }
 
@@ -328,15 +320,35 @@ void TcpServer::clientHandler(std::list<std::unique_ptr<Client>>::iterator cur) 
 
       // Remove disconnected client
       if((*cur)->_status == SocketStatus::disconnected) {
+        client_mutex.lock();
         auto last_cur = cur;
         auto prev = cur;
-        (*--prev)->move_next_mtx.lock();
-        std::unique_ptr<Client> client(std::move(*cur));
+
+        if(prev == client_list.begin()) { // if cur is first
+          prev = --client_list.end();
+          if(prev == client_list.begin()) { // if list has only 1 client
+            std::unique_ptr<Client> client(std::move(*cur));
+            bool move_res = moveToNextClient();
+            if(cur == last_cur) move_res = false;
+            client_list.erase(last_cur);
+            client->access_mtx.unlock();
+            client.reset();
+            client_mutex.unlock();
+
+            if(move_res) continue;
+            else {removeThread(); return;}
+          }
+        } else --prev;
+
+        (*prev)->move_next_mtx.lock();
         bool move_res = moveToNextClient();
+        std::unique_ptr<Client> client(std::move(*last_cur));
         client->access_mtx.unlock();
         client.reset();
         client_list.erase(last_cur);
         (*prev)->move_next_mtx.unlock();
+        client_mutex.unlock();
+
         if(move_res) continue;
         else {removeThread(); return;}
       }
