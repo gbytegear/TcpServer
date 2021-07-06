@@ -46,4 +46,4 @@ int main() {
 
 **New client handling way**
 
-<img src="https://gbytegear.github.io/TcpServer/doc/ClientHandling.jpg">
+<img src="https://raw.githubusercontent.com/gbytegear/TcpServer/master/doc/ClientHandling.jpg">
