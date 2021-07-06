@@ -7,7 +7,6 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <Windows.h>
-#include <ws2tcpip.h>
 typedef SOCKET socket_t;
 #else
 typedef int socket_t;
@@ -23,13 +22,7 @@ typedef int socket_t;
 
 struct TcpClient {
 
-	enum class status : uint8_t {
-		connected = 0,
-		err_socket_init = 1,
-		err_socket_bind = 2,
-		err_socket_connect = 3,
-		disconnected = 1
-	};
+  typedef SocketStatus status;
 
 private:
 	char* buffer = nullptr;
@@ -51,13 +44,9 @@ public:
 
 	status getStatus() {return _status;}
 
-  void clearData();
-	int loadData();
-	char* getData();
-  DataDescriptor waitData();
+  DataBuffer loadData();
 
-
-	bool sendData(const char* buffer, const size_t size) const;
+  bool sendData(const void* buffer, const size_t size) const;
 };
 
 #endif // TCPCLIENT_H

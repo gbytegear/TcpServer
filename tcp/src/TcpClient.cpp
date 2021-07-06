@@ -16,7 +16,7 @@
 TcpClient::TcpClient() noexcept : _status(status::disconnected) {}
 
 TcpClient::~TcpClient() {
-  clearData();
+//  clearData();
 	disconnect();
   WIN(WSACleanup();)
 }
@@ -24,10 +24,7 @@ TcpClient::~TcpClient() {
 TcpClient::status TcpClient::connectTo(uint32_t host, uint16_t port) noexcept {
   WIN(if(WSAStartup(MAKEWORD(2, 2), &w_data) != 0) {})
 
-  if((client_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_IP))
-     WIN(== SOCKET_ERROR)
-     NIX(< 0)
-     ) return _status = status::err_socket_init;
+  if((client_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_IP)) WIN(== INVALID_SOCKET) NIX(< 0)) return _status = status::err_socket_init;
 
 	sockaddr_in dest_addr;
 	dest_addr.sin_family = AF_INET;
@@ -51,40 +48,22 @@ TcpClient::status TcpClient::connectTo(uint32_t host, uint16_t port) noexcept {
 TcpClient::status TcpClient::disconnect() noexcept {
 	if(_status != status::connected)
 		return _status;
-  WINIX(
-    closesocket(client_socket);
-      ,
-    close(client_socket);
-  )
+  shutdown(client_socket, SD_BOTH);
+  WINIX(closesocket(client_socket), close(client_socket));
   return _status = status::disconnected;
 }
 
-void TcpClient::clearData() {
-  if(buffer) {
-    free(buffer);
-    buffer = nullptr;
+DataBuffer TcpClient::loadData() {
+  DataBuffer data;
+  recv(client_socket, reinterpret_cast<char*>(&data.size), sizeof(data.size), 0);
+  if(data.size) {
+    data.data_ptr = malloc(data.size);
+    recv(client_socket, reinterpret_cast<char*>(data.data_ptr), data.size, 0);
   }
+  return data;
 }
 
-int TcpClient::loadData() {
-  int size = 0;
-  recv(client_socket, reinterpret_cast<char*>(&size), sizeof(size), 0);
-  if(size) {
-    clearData();
-    buffer = (char*)malloc(size);
-    recv(client_socket, buffer, size, 0);
-  }
-  return size;
-}
-char* TcpClient::getData() {return buffer;}
-
-DataDescriptor TcpClient::waitData() {
-  int size = 0;
-  while (!(size = loadData()));
-  return DataDescriptor{static_cast<size_t>(size), getData()};
-}
-
-bool TcpClient::sendData(const char* buffer, const size_t size) const {
+bool TcpClient::sendData(const void* buffer, const size_t size) const {
   void* send_buffer = malloc(size + sizeof (int));
   memcpy(reinterpret_cast<char*>(send_buffer) + sizeof(int), buffer, size);
   *reinterpret_cast<int*>(send_buffer) = size;
