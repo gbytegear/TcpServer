@@ -48,6 +48,7 @@ struct TcpServer {
   struct Client;
   class ClientList;
   typedef std::function<void(DataBuffer, Client&)> handler_function_t;
+  typedef std::function<void(Client&)> con_handler_function_t;
   enum class status : uint8_t {
     up = 0,
     err_socket_init = 1,
@@ -62,6 +63,8 @@ private:
   uint16_t port;
   status _status = status::close;
   handler_function_t handler;
+  con_handler_function_t connect_hndl;
+  con_handler_function_t disconnect_hndl;
   std::thread handler_thread;
 
   KeepAliveConfig ka_conf;
@@ -84,6 +87,12 @@ public:
   TcpServer(const uint16_t port,
             handler_function_t handler,
             KeepAliveConfig ka_conf = {});
+  TcpServer(const uint16_t port,
+            handler_function_t handler,
+            con_handler_function_t connect_hndl = [](Client&){},
+            con_handler_function_t disconnect_hndl = [](Client&){},
+            KeepAliveConfig ka_conf = {});
+
   ~TcpServer();
 
   //! Set client handler
@@ -122,6 +131,7 @@ public:
   ~Client();
   uint32_t getHost() const;
   uint16_t getPort() const;
+  uint64_t getUID() const;
 
   bool sendData(const char* buffer, const size_t size) const;
 };

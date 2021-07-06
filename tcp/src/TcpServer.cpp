@@ -86,14 +86,23 @@ inline int convertError() {
 #define NIX(exp) exp
 #endif
 
-TcpServer::TcpServer(const uint16_t port, handler_function_t handler, KeepAliveConfig ka_conf) : port(port), handler(handler), ka_conf(ka_conf) {}
+TcpServer::TcpServer(const uint16_t port,
+                     handler_function_t handler,
+                     KeepAliveConfig ka_conf)
+  : TcpServer(port, handler, [](Client&){}, [](Client&){}, ka_conf) {}
+
+TcpServer::TcpServer(const uint16_t port,
+                     handler_function_t handler,
+                     con_handler_function_t connect_hndl,
+                     con_handler_function_t disconnect_hndl,
+                     KeepAliveConfig ka_conf)
+  : port(port), handler(handler), connect_hndl(connect_hndl), disconnect_hndl(disconnect_hndl), ka_conf(ka_conf) {}
 
 TcpServer::~TcpServer() {
   if(_status == status::up)
 	stop();
 	WIN(WSACleanup());
 }
-
 
 void TcpServer::setHandler(TcpServer::handler_function_t handler) {this->handler = handler;}
 
@@ -120,32 +129,38 @@ DataBuffer TcpServer::Client::loadData() {
   if(!answ) {
     disconnect();
     return DataBuffer();
-  }
+  } else if(answ == -1) {
+    // Error handle (f*ckin OS-dependence!)
+    WIN(
+      err = convertError();
+      if(!err) {
+        SockLen_t len = sizeof (err);
+        getsockopt (socket, SOL_SOCKET, SO_ERROR, WIN((char*))&err, &len);
+      }
+    )NIX(
+      SockLen_t len = sizeof (err);
+      getsockopt (socket, SOL_SOCKET, SO_ERROR, WIN((char*))&err, &len);
+      if(!err) err = errno;
+    )
 
-  // Error handle
-  WIN(err = convertError();)
-  NIX(err = errno;)
-  if(!err) {
-    SockLen_t len = sizeof (err);
-    getsockopt (socket, SOL_SOCKET, SO_ERROR, WIN((char*))&err, &len);
-  }
-  WIN(if(u_long t = false; SOCKET_ERROR == ioctlsocket(socket, FIONBIO, &t)) return DataBuffer();) // Windows non-blocking mode off
+    WIN(if(u_long t = false; SOCKET_ERROR == ioctlsocket(socket, FIONBIO, &t)) return DataBuffer();) // Windows non-blocking mode off
 
-  switch (err) {
-    case 0: break;
-      // Keep alive timeout
-    case ETIMEDOUT:
-    case ECONNRESET:
-    case EPIPE:
-      disconnect();
-      [[fallthrough]];
-      // No data
-    case EAGAIN: return DataBuffer();
-    default:
-      disconnect();
-      std::cerr << "Unhandled error!\n"
-                  << "Code: " << err << " Err: " << std::strerror(err) << '\n';
-    return DataBuffer();
+    switch (err) {
+      case 0: break;
+        // Keep alive timeout
+      case ETIMEDOUT:
+      case ECONNRESET:
+      case EPIPE:
+        disconnect();
+        [[fallthrough]];
+        // No data
+      case EAGAIN: return DataBuffer();
+      default:
+        disconnect();
+        std::cerr << "Unhandled error!\n"
+                    << "Code: " << err << " Err: " << std::strerror(err) << '\n';
+      return DataBuffer();
+    }
   }
 
   if(!buffer.size) return DataBuffer();
@@ -230,7 +245,7 @@ void TcpServer::handlingLoop() {
       }
 
       client_mutex.lock();
-      client_list.emplace_back(new Client(client_socket, client_addr));
+      connect_hndl(*client_list.emplace_back(new Client(client_socket, client_addr)));
       client_mutex.unlock();
       if(client_handler_threads.empty())
         client_handler_threads.emplace_back(std::thread([this]{clientHandler(client_list.begin());}));
@@ -257,7 +272,7 @@ bool TcpServer::enableKeepAlive(Socket socket) {
 
 
 void TcpServer::clientHandler(std::list<std::unique_ptr<Client>>::iterator cur) {
-  std::thread::id this_thr_id = std::this_thread::get_id();
+  const std::thread::id this_thr_id = std::this_thread::get_id();
 
   auto moveToNextClient = [this, &cur]()->bool{
     std::mutex& move_next_mtx = (*cur)->move_next_mtx;
@@ -288,9 +303,9 @@ void TcpServer::clientHandler(std::list<std::unique_ptr<Client>>::iterator cur) 
     client_handler_mutex.unlock();
   };
 
-  auto createThread = [this, cur]() mutable {
+  auto createThread = [this, &cur]() mutable {
     client_handler_mutex.lock();
-    client_handler_threads.emplace_back([this, &cur]() {
+    client_handler_threads.emplace_back([this, cur]() mutable {
       client_mutex.lock_shared();
       auto it = (++cur == client_list.end())? client_list.begin() : cur;
       client_mutex.unlock_shared();
@@ -327,6 +342,7 @@ void TcpServer::clientHandler(std::list<std::unique_ptr<Client>>::iterator cur) 
 
       // Remove disconnected client
       if((*cur)->_status != SocketStatus::connected) {
+        disconnect_hndl(**cur);
         client_mutex.lock();
 
         // If client_list.length() == 1;
@@ -379,4 +395,10 @@ TcpServer::Client::~Client() {
 
 uint32_t TcpServer::Client::getHost() const {return NIX(address.sin_addr.s_addr) WIN(address.sin_addr.S_un.S_addr);}
 uint16_t TcpServer::Client::getPort() const {return address.sin_port;}
+uint64_t TcpServer::Client::getUID() const {
+  uint64_t uid = 0;
+  *reinterpret_cast<uint32_t*>(&uid) = getHost();
+  *reinterpret_cast<uint16_t*>(reinterpret_cast<uint8_t*>(&uid) + sizeof(uint32_t)) = getPort();
+  return uid;
+}
 

@@ -14,11 +14,24 @@ std::string getHostStr(const TcpServer::Client& client) {
             std::to_string( client.getPort ());
 }
 
-TcpServer server( 8080, [](DataBuffer data, TcpServer::Client& client){
-  std::cout << "("<<getHostStr(client)<<")[ " << data.size << " bytes ]: " << (char*)data.data_ptr << '\n';
+TcpServer server( 8080,
+
+[](DataBuffer data, TcpServer::Client& client){ // Data handler
+  std::cout << "Client "<<getHostStr(client)<<" send data [ " << data.size << " bytes ]: " << (char*)data.data_ptr << '\n';
   client.sendData("Hello, client!", sizeof("Hello, client!"));
 },
-{1, 1, 1}); // Keep alive{idle:1s, interval: 1s, pk_count: 1}
+
+[](TcpServer::Client& client) { // Connect handler
+  std::cout << "Client " << getHostStr(client) << " connected\n";
+},
+
+
+[](TcpServer::Client& client) { // Disconnect handler
+  std::cout << "Client " << getHostStr(client) << " disconnected\n";
+},
+
+{1, 1, 1} // Keep alive{idle:1s, interval: 1s, pk_count: 1}
+);
 
 void testServer() {
   //Start server
@@ -30,24 +43,13 @@ void testServer() {
   }
 }
 
-//void testClient() {
-//  TcpClient client;
-//  client.connectTo(LOCALHOST_IP, 8080);
-//  client.sendData("Hello, server!", sizeof("Hello, server!"));
-//  DataBuffer data = client.loadData();
-//  std::cout << "Client[ " << data.size << " bytes ]: " << (const char*)data.data_ptr << '\n';
-//}
+
 
 
 int main() {
   using namespace std::chrono_literals;
   try {
   testServer();
-//  std::thread thr1(testClient);
-
-//  thr1.join();
-
-
 
   std::this_thread::sleep_for(30s);
   } catch(std::exception& except) {
