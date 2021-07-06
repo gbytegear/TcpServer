@@ -138,6 +138,7 @@ DataBuffer TcpServer::Client::loadData() {
     case ECONNRESET:
     case EPIPE:
       disconnect();
+      [[fallthrough]];
       // No data
     case EAGAIN: return DataBuffer();
     default:
@@ -258,16 +259,18 @@ bool TcpServer::enableKeepAlive(Socket socket) {
 void TcpServer::clientHandler(std::list<std::unique_ptr<Client>>::iterator cur) {
   std::thread::id this_thr_id = std::this_thread::get_id();
 
-  auto moveToNextClient = [this, &cur, &next_mtx = (*cur)->move_next_mtx]()->bool{
-    next_mtx.lock();
+  auto moveToNextClient = [this, &cur]()->bool{
+    std::mutex& move_next_mtx = (*cur)->move_next_mtx;
+    if(!*cur) return false;
+    move_next_mtx.lock();
     if(++cur == client_list.end()) {
       cur = client_list.begin();
       if(cur == client_list.end()) { // if list is empty
-        next_mtx.unlock();
+        move_next_mtx.unlock();
         return false;
       }
     }
-    next_mtx.unlock();
+    move_next_mtx.unlock();
     return true;
   };
 
@@ -285,11 +288,19 @@ void TcpServer::clientHandler(std::list<std::unique_ptr<Client>>::iterator cur) 
     client_handler_mutex.unlock();
   };
 
+  auto createThread = [this, cur]() mutable {
+    client_handler_mutex.lock();
+    client_handler_threads.emplace_back([this, &cur]() {
+      client_mutex.lock_shared();
+      auto it = (++cur == client_list.end())? client_list.begin() : cur;
+      client_mutex.unlock_shared();
+      clientHandler(it);
+    });
+    client_handler_mutex.unlock();
+  };
+
 
   while(_status == status::up) {
-    // TODO: Fix error cases:
-    // * Case if client_list.length() == 1;
-    // * Case if cur == client_list.begin();
 
     if(!*cur) { // If client element is remove
       if(moveToNextClient()) continue;
@@ -300,14 +311,7 @@ void TcpServer::clientHandler(std::list<std::unique_ptr<Client>>::iterator cur) 
     }
 
     if(DataBuffer data = (*cur)->loadData(); data.size) {
-      client_handler_mutex.lock();
-      client_handler_threads.emplace_back([this, cur]()mutable{
-        client_mutex.lock_shared();
-        auto it = (++cur == client_list.end())? client_list.begin() : cur;
-        client_mutex.unlock_shared();
-        clientHandler(it);
-      });
-      client_handler_mutex.unlock();
+      createThread();
 
       handler(data, **cur);
 
@@ -316,41 +320,39 @@ void TcpServer::clientHandler(std::list<std::unique_ptr<Client>>::iterator cur) 
       (*cur)->access_mtx.unlock();
       client_mutex.unlock();
 
+      removeThread();
+      return;
+
     } else {
 
       // Remove disconnected client
-      if((*cur)->_status == SocketStatus::disconnected) {
+      if((*cur)->_status != SocketStatus::connected) {
         client_mutex.lock();
-        auto last_cur = cur;
+
+        // If client_list.length() == 1;
+        if(client_list.begin() == --client_list.end()) {
+          (*cur)->access_mtx.unlock();
+          client_list.erase(cur);
+          removeThread();
+          client_mutex.unlock();
+          return;
+        }
+
         auto prev = cur;
+        auto last_cur = cur;
+        if(prev == client_list.begin()) prev = --client_list.end();
+        else --prev;
 
-        if(prev == client_list.begin()) { // if cur is first
-          prev = --client_list.end();
-          if(prev == client_list.begin()) { // if list has only 1 client
-            std::unique_ptr<Client> client(std::move(*cur));
-            bool move_res = moveToNextClient();
-            if(cur == last_cur) move_res = false;
-            client_list.erase(last_cur);
-            client->access_mtx.unlock();
-            client.reset();
-            client_mutex.unlock();
-
-            if(move_res) continue;
-            else {removeThread(); return;}
-          }
-        } else --prev;
-
-        (*prev)->move_next_mtx.lock();
         bool move_res = moveToNextClient();
-        std::unique_ptr<Client> client(std::move(*last_cur));
-        client->access_mtx.unlock();
-        client.reset();
+        (*prev)->move_next_mtx.lock();
+        (*last_cur)->access_mtx.unlock();
         client_list.erase(last_cur);
         (*prev)->move_next_mtx.unlock();
-        client_mutex.unlock();
 
+        client_mutex.unlock();
         if(move_res) continue;
         else {removeThread(); return;}
+        return;
       }
 
       // Move to next client
@@ -359,9 +361,6 @@ void TcpServer::clientHandler(std::list<std::unique_ptr<Client>>::iterator cur) 
       else {removeThread(); return;}
     }
 
-    removeThread();
-    return;
-
   }
 
 
@@ -369,10 +368,6 @@ void TcpServer::clientHandler(std::list<std::unique_ptr<Client>>::iterator cur) 
 
 TcpServer::Client::Client(Socket socket, SocketAddr_in address)
   : address(address), socket(socket) {}
-TcpServer::Client::Client(Client&& other)
-  : access_mtx(), address(other.address), socket(other.socket) {
-  other.socket = WIN(SOCKET_ERROR)NIX(-1);
-}
 
 
 TcpServer::Client::~Client() {

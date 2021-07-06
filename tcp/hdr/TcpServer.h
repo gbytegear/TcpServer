@@ -119,7 +119,6 @@ private:
 
 public:
   Client(Socket socket, SocketAddr_in address);
-  Client(Client&& other);
   ~Client();
   uint32_t getHost() const;
   uint16_t getPort() const;

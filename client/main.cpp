@@ -14,20 +14,24 @@ std::string getHostStr(uint32_t ip, uint16_t port) {
             std::to_string( port );
 }
 
-int main() {
+
+void client() {
   using namespace std::chrono_literals;
   TcpClient client;
-  TcpClient client_2;
   client.connectTo(LOCALHOST_IP, 8080);
-  client_2.connectTo(LOCALHOST_IP, 8080);
   client.sendData("Hello, server!", sizeof("Hello, server!"));
   DataBuffer data = client.loadData();
   std::cout << "Client[ " << data.size << " bytes ]: " << (const char*)data.data_ptr << '\n';
-  data.~DataBuffer();
-  new(&data) DataBuffer(client_2.loadData());
-  std::cout << "Client 2[ " << data.size << " bytes ]: " << (const char*)data.data_ptr << '\n';
   std::this_thread::sleep_for(5s);
   client.disconnect();
-  client_2.disconnect();
   std::clog << "Socket closed!\n";
+}
+
+int main() {
+  std::thread th1(client);
+  std::thread th2(client);
+  std::thread th3(client);
+  th1.join();
+  th2.join();
+  th3.join();
 }
