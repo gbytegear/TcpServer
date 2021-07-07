@@ -1,15 +1,18 @@
 # TcpServer
 Simple Crossplatform Multi-threading TCP/IP Server
 
-**Build**
+# Build library
 
-```gcc``` Required
+Required:
+ * GCC ([MinGW for Windows](https://sourceforge.net/projects/mingw/))
+ * GNU Make ([Make for Windows](http://gnuwin32.sourceforge.net/packages/make.htm))
 
 ```bash
-make all
+# In directory with source code
+$ make lib
 ```
 
-**Usage example:**
+# Usage example:
 ```cpp
 #include "server/hdr/TcpServer.h"
 
@@ -44,6 +47,14 @@ int main() {
 }
 ```
 
+# Build project example:
+
+Copy the compiled library and the folder with the header files ```tcp/hdr``` to the directory with your project and build your project as follows:
+```bash
+$ g++ <your_code.cpp> -I<path/to/header/files> -L<path/to/static_library> -o <name_of_your_programm> -ltcp -lpthread -std=c++17
+```
+
+# Other:
 **New client handling way**
 
 <img src="https://raw.githubusercontent.com/gbytegear/TcpServer/master/doc/ClientHandling.jpg">
