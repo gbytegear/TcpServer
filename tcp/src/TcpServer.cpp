@@ -177,7 +177,7 @@ void TcpServer::Client::disconnect() {
   socket = WIN(INVALID_SOCKET)NIX(-1);
 }
 
-bool TcpServer::Client::sendData(const char* buffer, const size_t size) const {
+bool TcpServer::Client::sendData(const void* buffer, const size_t size) const {
   void* send_buffer = malloc(size + sizeof (int));
   memcpy(reinterpret_cast<char*>(send_buffer) + sizeof(int), buffer, size);
   *reinterpret_cast<int*>(send_buffer) = size;
@@ -395,10 +395,4 @@ TcpServer::Client::~Client() {
 
 uint32_t TcpServer::Client::getHost() const {return NIX(address.sin_addr.s_addr) WIN(address.sin_addr.S_un.S_addr);}
 uint16_t TcpServer::Client::getPort() const {return address.sin_port;}
-uint64_t TcpServer::Client::getUID() const {
-  uint64_t uid = 0;
-  *reinterpret_cast<uint32_t*>(&uid) = getHost();
-  *reinterpret_cast<uint16_t*>(reinterpret_cast<uint8_t*>(&uid) + sizeof(uint32_t)) = getPort();
-  return uid;
-}
 

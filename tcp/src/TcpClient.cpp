@@ -16,7 +16,6 @@
 TcpClient::TcpClient() noexcept : _status(status::disconnected) {}
 
 TcpClient::~TcpClient() {
-//  clearData();
 	disconnect();
   WIN(WSACleanup();)
 }
@@ -26,17 +25,17 @@ TcpClient::status TcpClient::connectTo(uint32_t host, uint16_t port) noexcept {
 
   if((client_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_IP)) WIN(== INVALID_SOCKET) NIX(< 0)) return _status = status::err_socket_init;
 
-	sockaddr_in dest_addr;
-	dest_addr.sin_family = AF_INET;
-  dest_addr.sin_addr.s_addr = host;
+  new(&address) SocketAddr_in;
+  address.sin_family = AF_INET;
+  address.sin_addr.s_addr = host;
   WINIX(
-      dest_addr.sin_addr.S_un.S_addr = host;
+      address.sin_addr.S_un.S_addr = host;
       ,
-      dest_addr.sin_addr.s_addr = host;
+      address.sin_addr.s_addr = host;
   )
-	dest_addr.sin_port = htons(port);
+  address.sin_port = htons(port);
 
-  if(connect(client_socket, (sockaddr *)&dest_addr, sizeof(dest_addr))
+  if(connect(client_socket, (sockaddr *)&address, sizeof(address))
      WINIX(== SOCKET_ERROR,!= 0)
      ) {
     WINIX(closesocket(client_socket); ,close(client_socket);)
@@ -50,7 +49,9 @@ TcpClient::status TcpClient::disconnect() noexcept {
 		return _status;
   shutdown(client_socket, SD_BOTH);
   WINIX(closesocket(client_socket), close(client_socket));
-  return _status = status::disconnected;
+  _status = status::disconnected;
+  if(handler_thread) handler_thread->join();
+  return _status;
 }
 
 DataBuffer TcpClient::loadData() {
@@ -63,6 +64,24 @@ DataBuffer TcpClient::loadData() {
   return data;
 }
 
+std::thread& TcpClient::setHandler(TcpClient::handler_function_t handler) {
+  handle_mutex.lock();
+  handler_func = handler;
+  handle_mutex.unlock();
+
+  if(handler_thread) return *handler_thread;
+
+  handler_thread = std::thread([this](){
+    while(_status == status::connected) {
+      handle_mutex.lock();
+      if(DataBuffer data = loadData(); data) handler_func(std::move(data));
+      handle_mutex.unlock();
+    }
+  });
+
+  return *handler_thread;
+}
+
 bool TcpClient::sendData(const void* buffer, const size_t size) const {
   void* send_buffer = malloc(size + sizeof (int));
   memcpy(reinterpret_cast<char*>(send_buffer) + sizeof(int), buffer, size);
@@ -71,3 +90,6 @@ bool TcpClient::sendData(const void* buffer, const size_t size) const {
   free(send_buffer);
 	return true;
 }
+
+uint32_t TcpClient::getHost() const {return NIX(address.sin_addr.s_addr) WIN(address.sin_addr.S_un.S_addr);}
+uint16_t TcpClient::getPort() const {return address.sin_port;}

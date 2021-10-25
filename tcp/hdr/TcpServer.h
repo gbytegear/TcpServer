@@ -63,8 +63,8 @@ private:
   uint16_t port;
   status _status = status::close;
   handler_function_t handler;
-  con_handler_function_t connect_hndl;
-  con_handler_function_t disconnect_hndl;
+  con_handler_function_t connect_hndl = [](Client&){};
+  con_handler_function_t disconnect_hndl = [](Client&){};
   std::thread handler_thread;
 
   KeepAliveConfig ka_conf;
@@ -89,8 +89,8 @@ public:
             KeepAliveConfig ka_conf = {});
   TcpServer(const uint16_t port,
             handler_function_t handler,
-            con_handler_function_t connect_hndl = [](Client&){},
-            con_handler_function_t disconnect_hndl = [](Client&){},
+            con_handler_function_t connect_hndl,
+            con_handler_function_t disconnect_hndl,
             KeepAliveConfig ka_conf = {});
 
   ~TcpServer();
@@ -109,11 +109,7 @@ public:
   void joinLoop();
 };
 
-struct TcpServer::Client {
-
-  typedef SocketStatus status;
-
-private:
+struct TcpServer::Client : public TcpClientBase {
   friend struct TcpServer;
 
   std::mutex access_mtx;
@@ -122,18 +118,18 @@ private:
   Socket socket;
   status _status = status::connected;
 
-  DataBuffer loadData();
   void disconnect();
-
 
 public:
   Client(Socket socket, SocketAddr_in address);
-  ~Client();
-  uint32_t getHost() const;
-  uint16_t getPort() const;
-  uint64_t getUID() const;
+  virtual ~Client() override;
+  virtual uint32_t getHost() const override;
+  virtual uint16_t getPort() const override;
+  virtual status getStatus() const override {return _status;}
 
-  bool sendData(const char* buffer, const size_t size) const;
+  virtual DataBuffer loadData() override;
+  virtual bool sendData(const void* buffer, const size_t size) const override;
+  virtual SocketType getType() const override {return SocketType::server_socket;}
 };
 
 #endif // TCPSERVER_H

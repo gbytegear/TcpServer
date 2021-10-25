@@ -19,34 +19,51 @@ typedef int socket_t;
 #endif
 
 #include "general.h"
+#include <functional>
+#include <thread>
+#include <mutex>
 
-struct TcpClient {
+#ifdef _WIN32 // Windows NT
+typedef int SockLen_t;
+typedef SOCKADDR_IN SocketAddr_in;
+typedef SOCKET Socket;
+typedef u_long ka_prop_t;
+#else // POSIX
+typedef socklen_t SockLen_t;
+typedef struct sockaddr_in SocketAddr_in;
+typedef int Socket;
+typedef int ka_prop_t;
+#endif
 
-  typedef SocketStatus status;
+struct TcpClient : public TcpClientBase {
+  SocketAddr_in address;
+  socket_t client_socket;
 
-private:
-	char* buffer = nullptr;
-	status _status = status::disconnected;
-	socket_t client_socket;
+  std::mutex handle_mutex;
+  std::function<void(DataBuffer)> handler_func = [](DataBuffer){};
+  std::optional<std::thread> handler_thread;
 #ifdef _WIN32
-	WSAData w_data;
+  WSAData w_data;
 #else
 #endif
+  status _status = status::disconnected;
 public:
-	TcpClient() noexcept;
-	~TcpClient();
+  typedef std::function<void(DataBuffer)> handler_function_t;
+  TcpClient() noexcept;
+  virtual ~TcpClient() override;
 
-	status connectTo(uint32_t host, uint16_t port) noexcept;
-	status disconnect() noexcept;
+  status connectTo(uint32_t host, uint16_t port) noexcept;
+  status disconnect() noexcept;
 
-	uint32_t getHost() const;
-	uint16_t getPort() const;
+  virtual uint32_t getHost() const override;
+  virtual uint16_t getPort() const override;
+  virtual status getStatus() const override {return _status;}
 
-	status getStatus() {return _status;}
+  virtual DataBuffer loadData() override;
+  std::thread& setHandler(handler_function_t handler);
 
-  DataBuffer loadData();
-
-  bool sendData(const void* buffer, const size_t size) const;
+  virtual bool sendData(const void* buffer, const size_t size) const override;
+  virtual SocketType getType() const override {return SocketType::client_socket;}
 };
 
 #endif // TCPCLIENT_H

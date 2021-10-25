@@ -14,24 +14,25 @@ std::string getHostStr(uint32_t ip, uint16_t port) {
             std::to_string( port );
 }
 
-
-void client() {
+int main() {
+  static int call_count = 5;
   using namespace std::chrono_literals;
   TcpClient client;
-  client.connectTo(LOCALHOST_IP, 8080);
-  client.sendData("Hello, server!", sizeof("Hello, server!"));
-  DataBuffer data = client.loadData();
-  std::cout << "Client[ " << data.size << " bytes ]: " << (const char*)data.data_ptr << '\n';
-  std::this_thread::sleep_for(5s);
+  if(client.connectTo(LOCALHOST_IP, 8080) == SocketStatus::connected) {
+    std::clog << "Client connected\n";
+  } else {
+    std::cerr << "Client isn't connected\n";
+    return -1;
+  }
+  for(int i = 0; i < 255; ++i) {
+    std::clog << "Client tries to send data to server\n";
+    client.sendData("Hello, server!", sizeof("Hello, server!"));
+    std::clog << "Client waites data from server...\n";
+    DataBuffer data = client.loadData();
+    std::cout << "Client[ " << data.size << " bytes ]: " << (const char*)data.data_ptr << '\n';
+  }
   client.disconnect();
   std::clog << "Socket closed!\n";
-}
-
-int main() {
-  std::thread th1(client);
-  std::thread th2(client);
-  std::thread th3(client);
-  th1.join();
-  th2.join();
-  th3.join();
+  if(--call_count) return main();
+  return 0;
 }

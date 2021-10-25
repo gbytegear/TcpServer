@@ -8,6 +8,7 @@ LIBS +=  -lpthread
 CONFIG += c++2a
 } else {
 CONFIG += c++17
+LIBS +=  -lpthread
 QMAKE_LFLAGS += -static
 LIBS += C:\Qt\Tools\mingw730_64\x86_64-w64-mingw32\lib\libws2_32.a \
      -static C:\Qt\Tools\mingw730_64\x86_64-w64-mingw32\lib\libwinpthread-1.dll \
@@ -21,4 +22,5 @@ SOURCES += client/main.cpp \
 	tcp/src/TcpClient.cpp
 
 HEADERS += \
-	tcp/hdr/TcpClient.h 
+        tcp/hdr/TcpClient.h \
+        tcp/hdr/general.h
