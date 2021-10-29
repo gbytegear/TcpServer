@@ -34,7 +34,7 @@ struct DataBuffer {
   ~DataBuffer() {if(data_ptr) free(data_ptr); data_ptr = nullptr;}
 
   bool isEmpty() {return !data_ptr || !size;}
-  operator bool() {return !data_ptr || !size;}
+  operator bool() {return data_ptr && size;}
 };
 
 enum class SocketType : uint8_t {
