@@ -247,7 +247,7 @@ void TcpServer::handlingLoop() {
       std::unique_ptr<Client> client(new Client(client_socket, client_addr));
       connect_hndl(*client);
       client_mutex.lock();
-      client_list.emplace_back(new Client(client_socket, client_addr));
+      client_list.emplace_back(std::move(client));
       client_mutex.unlock();
       if(client_handler_threads.empty())
         client_handler_threads.emplace_back(std::thread([this]{clientHandler(client_list.begin());}));
