@@ -8,7 +8,7 @@ endif
 
 
 libtcp.a:
-	g++ -c -I. tcp/src/*.cpp -std=c++17
+	g++ -c -I. tcp/source/*.cpp -std=c++17
 	ar cr libtcp.a ./*.o
 	rm -rf ./*.o
 

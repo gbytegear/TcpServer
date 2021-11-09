@@ -19,10 +19,9 @@ QMAKE_LFLAGS_EXCEPTIONS_ON = -mthreads
 }
 
 SOURCES += server/main.cpp \
-        tcp/src/TcpServer.cpp \
-	tcp/src/TcpClient.cpp
+        tcp/source/TcpServer.cpp \
+        tcp/source/TcpServerClient.cpp
 
 HEADERS += \
-        tcp/hdr/TcpServer.h \
-	tcp/hdr/TcpClient.h \
-    tcp/hdr/general.h
+        tcp/include/general.h
+        tcp/include/TcpServer.h \

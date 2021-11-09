@@ -1,4 +1,4 @@
-#include "../hdr/TcpClient.h"
+#include "../include/TcpClient.h"
 #include <stdio.h>
 #include <cstring>
 
@@ -16,8 +16,11 @@
 TcpClient::TcpClient() noexcept : _status(status::disconnected) {}
 
 TcpClient::~TcpClient() {
-	disconnect();
+  disconnect();
   WIN(WSACleanup();)
+
+  if(handler_thread) if(handler_thread->joinable())
+      handler_thread->join();
 }
 
 TcpClient::status TcpClient::connectTo(uint32_t host, uint16_t port) noexcept {
@@ -71,13 +74,14 @@ std::thread& TcpClient::setHandler(TcpClient::handler_function_t handler) {
 
   if(handler_thread) return *handler_thread;
 
-  handler_thread = std::thread([this](){
-    while(_status == status::connected) {
-      handle_mutex.lock();
-      if(DataBuffer data = loadData(); data) handler_func(std::move(data));
-      handle_mutex.unlock();
-    }
-  });
+  handler_thread = std::unique_ptr<std::thread>(new std::thread([this](){
+    while(_status == status::connected)
+      if(DataBuffer data = loadData(); data) {
+        handle_mutex.lock();
+        handler_func(std::move(data));
+        handle_mutex.unlock();
+      }
+  }));
 
   return *handler_thread;
 }

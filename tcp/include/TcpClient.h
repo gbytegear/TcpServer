@@ -22,6 +22,7 @@ typedef int socket_t;
 #include <functional>
 #include <thread>
 #include <mutex>
+#include <memory.h>
 
 #ifdef _WIN32 // Windows NT
 typedef int SockLen_t;
@@ -41,7 +42,8 @@ struct TcpClient : public TcpClientBase {
 
   std::mutex handle_mutex;
   std::function<void(DataBuffer)> handler_func = [](DataBuffer){};
-  std::optional<std::thread> handler_thread;
+//  std::optional<std::thread> handler_thread;
+  std::unique_ptr<std::thread> handler_thread;
 #ifdef _WIN32
   WSAData w_data;
 #else
@@ -53,7 +55,7 @@ public:
   virtual ~TcpClient() override;
 
   status connectTo(uint32_t host, uint16_t port) noexcept;
-  status disconnect() noexcept;
+  virtual status disconnect() noexcept override;
 
   virtual uint32_t getHost() const override;
   virtual uint16_t getPort() const override;

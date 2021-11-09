@@ -49,6 +49,7 @@ struct TcpServer {
   class ClientList;
   typedef std::function<void(DataBuffer, Client&)> handler_function_t;
   typedef std::function<void(Client&)> con_handler_function_t;
+
   enum class status : uint8_t {
     up = 0,
     err_socket_init = 1,
@@ -66,6 +67,7 @@ private:
   con_handler_function_t connect_hndl = [](Client&){};
   con_handler_function_t disconnect_hndl = [](Client&){};
   std::thread handler_thread;
+  typedef std::list<std::unique_ptr<Client>>::iterator ClientIterator;
 
   KeepAliveConfig ka_conf;
 
@@ -81,7 +83,7 @@ private:
 
   void handlingLoop();
   bool enableKeepAlive(Socket socket);
-  void clientHandler(std::list<std::unique_ptr<Client>>::iterator cur);
+  void clientHandler(ClientIterator cur);
 
 public:
   TcpServer(const uint16_t port,
@@ -97,16 +99,17 @@ public:
 
   //! Set client handler
   void setHandler(handler_function_t handler);
-
   uint16_t getPort() const;
   uint16_t setPort(const uint16_t port);
-
   status getStatus() const {return _status;}
-
   status start();
   void stop();
-
   void joinLoop();
+
+  void sendData(const void* buffer, const size_t size);
+  bool sendDataBy(uint32_t host, uint16_t port, const void* buffer, const size_t size);
+  bool disconnectBy(uint32_t host, uint16_t port);
+  void disconnectAll();
 };
 
 struct TcpServer::Client : public TcpClientBase {
@@ -118,7 +121,6 @@ struct TcpServer::Client : public TcpClientBase {
   Socket socket;
   status _status = status::connected;
 
-  void disconnect();
 
 public:
   Client(Socket socket, SocketAddr_in address);
@@ -126,6 +128,7 @@ public:
   virtual uint32_t getHost() const override;
   virtual uint16_t getPort() const override;
   virtual status getStatus() const override {return _status;}
+  virtual status disconnect() override;
 
   virtual DataBuffer loadData() override;
   virtual bool sendData(const void* buffer, const size_t size) const override;
