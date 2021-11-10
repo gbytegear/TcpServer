@@ -36,6 +36,8 @@ typedef int Socket;
 typedef int ka_prop_t;
 #endif
 
+#define NONBLOCK
+
 struct TcpClient : public TcpClientBase {
   SocketAddr_in address;
   socket_t client_socket;
