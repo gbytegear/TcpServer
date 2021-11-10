@@ -1,8 +1,8 @@
 
-ifeq ($(UNAME), Linux)
-CXX_LIBS = -lpthread
-else
+ifeq ($(UNAME), Win)
 CXX_LIBS = -lpthread -lws2_32
+else
+CXX_LIBS = -lpthread
 endif
 
 

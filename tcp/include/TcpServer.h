@@ -106,6 +106,8 @@ public:
   void stop();
   void joinLoop();
 
+  bool connectTo(uint32_t host, uint16_t port);
+
   void sendData(const void* buffer, const size_t size);
   bool sendDataBy(uint32_t host, uint16_t port, const void* buffer, const size_t size);
   bool disconnectBy(uint32_t host, uint16_t port);

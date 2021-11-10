@@ -155,6 +155,41 @@ void TcpServer::stop() {
 
 void TcpServer::joinLoop() {handler_thread.join();}
 
+bool TcpServer::connectTo(uint32_t host, uint16_t port) {
+  Socket client_socket;
+  SocketAddr_in address;
+  if((client_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_IP)) WIN(== INVALID_SOCKET) NIX(< 0)) return false;
+
+  new(&address) SocketAddr_in;
+  address.sin_family = AF_INET;
+  address.sin_addr.s_addr = host;
+  WIN(address.sin_addr.S_un.S_addr = host;)
+  NIX(address.sin_addr.s_addr = host;)
+
+  address.sin_port = htons(port);
+
+  if(connect(client_socket, (sockaddr *)&address, sizeof(address))
+     WIN(== SOCKET_ERROR)NIX(!= 0)
+     ) {
+    WIN(closesocket(client_socket);)NIX(close(client_socket);)
+    return false;
+  }
+
+  if(!enableKeepAlive(client_socket)) {
+    shutdown(client_socket, 0);
+    WIN(closesocket)NIX(close)(client_socket);
+  }
+
+  std::unique_ptr<Client> client(new Client(client_socket, address));
+  connect_hndl(*client);
+  client_mutex.lock();
+  client_list.emplace_back(std::move(client));
+  client_mutex.unlock();
+  if(client_handler_threads.empty())
+    client_handler_threads.emplace_back(std::thread([this]{clientHandler(client_list.begin());}));
+  return true;
+}
+
 void TcpServer::sendData(const void* buffer, const size_t size) {
   for(std::unique_ptr<Client>& client : client_list)
     client->sendData(buffer, size);
