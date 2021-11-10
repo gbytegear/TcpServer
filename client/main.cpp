@@ -26,6 +26,30 @@ int main() {
     client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
 
     std::clog << "Client connected\n";
+
+    client.disconnect();
+
+    std::this_thread::sleep_for(1s);
+
+    client.connectTo(LOCALHOST_IP, 8081);
+    client.setHandler([](DataBuffer data) {
+      std::clog << "Recived " << data.size << " bytes: " << (char*)data.data_ptr << '\n';
+    });
+    client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
+    client.disconnect();
+
+    std::this_thread::sleep_for(1s);
+
+    client.connectTo(LOCALHOST_IP, 8081);
+    client.setHandler([](DataBuffer data) {
+      std::clog << "Recived " << data.size << " bytes: " << (char*)data.data_ptr << '\n';
+    });
+    client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
+    client.disconnect();
+
+    std::this_thread::sleep_for(1s);
+
+
   } else {
     std::cerr << "Client isn't connected\n";
     return -1;

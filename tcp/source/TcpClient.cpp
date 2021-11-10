@@ -127,10 +127,11 @@ TcpClient::status TcpClient::connectTo(uint32_t host, uint16_t port) noexcept {
 TcpClient::status TcpClient::disconnect() noexcept {
 	if(_status != status::connected)
 		return _status;
-  shutdown(client_socket, SD_BOTH);
-  WINIX(closesocket(client_socket), close(client_socket));
   _status = status::disconnected;
   if(handler_thread) handler_thread->join();
+  handler_thread = nullptr;
+  shutdown(client_socket, SD_BOTH);
+  WINIX(closesocket(client_socket), close(client_socket));
   return _status;
 }
 
