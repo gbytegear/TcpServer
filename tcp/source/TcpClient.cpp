@@ -160,7 +160,7 @@ DataBuffer TcpClient::loadData() {
         }
       )NIX(
         SockLen_t len = sizeof (err);
-        getsockopt (socket, SOL_SOCKET, SO_ERROR, WIN((char*))&err, &len);
+        getsockopt (client_socket, SOL_SOCKET, SO_ERROR, WIN((char*))&err, &len);
         if(!err) err = errno;
       )
 
