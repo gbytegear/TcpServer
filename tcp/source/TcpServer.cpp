@@ -145,17 +145,17 @@ void TcpServer::stop() {
   WIN(closesocket)NIX(close)(serv_socket);
 
   joinLoop();
-  client_handler_mutex.lock();
-  for(std::thread& cl_thr : client_handler_threads)
-    cl_thr.join();
-  client_handler_mutex.unlock();
-  client_handler_threads.clear();
+//  client_handler_mutex.lock();
+//  for(std::thread& cl_thr : client_handler_threads)
+//    cl_thr.join();
+//  client_handler_mutex.unlock();
+//  client_handler_threads.clear();
   client_list.clear();
 }
 
 void TcpServer::joinLoop() {handler_thread.join();}
 
-bool TcpServer::connectTo(uint32_t host, uint16_t port) {
+bool TcpServer::connectTo(uint32_t host, uint16_t port, con_handler_function_t connect_hndl) {
   Socket client_socket;
   SocketAddr_in address;
   if((client_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_IP)) WIN(== INVALID_SOCKET) NIX(< 0)) return false;
@@ -180,13 +180,13 @@ bool TcpServer::connectTo(uint32_t host, uint16_t port) {
     WIN(closesocket)NIX(close)(client_socket);
   }
 
-  std::unique_ptr<Client> client(new Client(client_socket, address));
-  connect_hndl(*client);
-  client_mutex.lock();
-  client_list.emplace_back(std::move(client));
-  client_mutex.unlock();
-  if(client_handler_threads.empty())
-    client_handler_threads.emplace_back(std::thread([this]{clientHandler(client_list.begin());}));
+//  std::unique_ptr<Client> client(new Client(client_socket, address));
+//  connect_hndl(*client);
+//  client_mutex.lock();
+  connect_hndl(*client_list.emplace_back(new Client(client_socket, address)));
+//  client_mutex.unlock();
+//  if(client_handler_threads.empty())
+//    client_handler_threads.emplace_back(std::thread([this]{clientHandler(client_list.begin());}));
   return true;
 }
 
@@ -237,14 +237,39 @@ void TcpServer::handlingLoop() {
         WIN(closesocket)NIX(close)(client_socket);
       }
 
-      std::unique_ptr<Client> client(new Client(client_socket, client_addr));
-      connect_hndl(*client);
-      client_mutex.lock();
-      client_list.emplace_back(std::move(client));
-      client_mutex.unlock();
-      if(client_handler_threads.empty())
-        client_handler_threads.emplace_back(std::thread([this]{clientHandler(client_list.begin());}));
+//      std::unique_ptr<Client> client(new Client(client_socket, client_addr));
+//      connect_hndl(*client);
+//      client_mutex.lock();
+      connect_hndl(*client_list.emplace_back(new Client(client_socket, client_addr)));
+//      client_mutex.unlock();
+//      if(client_handler_threads.empty())
+//        client_handler_threads.emplace_back(std::thread([this]{clientHandler(client_list.begin());}));
     }
+
+    for(auto it = client_list.begin(), end = client_list.end(); it != end; ++it) {
+      auto& client = *it;
+      if(client){
+        if(DataBuffer data = client->loadData(); data.size) {
+          std::thread([this, _data = std::move(data), &client]{
+            client->access_mtx.lock();
+            handler(_data, *client);
+            client->access_mtx.unlock();
+          }).detach();
+        } else if(client->_status == SocketStatus::disconnected) {
+          std::thread([this, &client, it]{
+            client->access_mtx.lock();
+            Client* pointer = client.release();
+            client = nullptr;
+            pointer->access_mtx.unlock();
+            disconnect_hndl(*pointer);
+            client_list.erase(it);
+            delete pointer;
+          }).detach();
+        }
+      }
+    }
+
+
   }
 
 }
@@ -266,109 +291,109 @@ bool TcpServer::enableKeepAlive(Socket socket) {
 }
 
 
-void TcpServer::clientHandler(ClientIterator cur) {
-  const std::thread::id this_thr_id = std::this_thread::get_id();
+//void TcpServer::clientHandler(ClientIterator cur) {
+//  const std::thread::id this_thr_id = std::this_thread::get_id();
 
-  auto moveToNextClient = [this, &cur]()->bool{
-    std::mutex& move_next_mtx = (*cur)->move_next_mtx;
-    if(!*cur) return false;
-    move_next_mtx.lock();
-    if(++cur == client_list.end()) {
-      cur = client_list.begin();
-      if(cur == client_list.end()) { // if list is empty
-        move_next_mtx.unlock();
-        return false;
-      }
-    }
-    move_next_mtx.unlock();
-    return true;
-  };
-
-
-  auto removeThread = [&this_thr_id, this]() {
-    client_handler_mutex.lock();
-    for(auto it = client_handler_threads.begin(),
-        end = client_handler_threads.end();
-        it != end ;++it) if(it->get_id() == this_thr_id) {
-      it->detach();
-      client_handler_threads.erase(it);
-      client_handler_mutex.unlock();
-      return;
-    }
-    client_handler_mutex.unlock();
-  };
-
-  auto createThread = [this, &cur]() mutable {
-    client_handler_mutex.lock();
-    client_handler_threads.emplace_back([this, cur]() mutable {
-      client_mutex.lock_shared();
-      auto it = (++cur == client_list.end())? client_list.begin() : cur;
-      client_mutex.unlock_shared();
-      clientHandler(it);
-    });
-    client_handler_mutex.unlock();
-  };
+//  auto moveToNextClient = [this, &cur]()->bool{
+//    std::mutex& move_next_mtx = (*cur)->move_next_mtx;
+//    if(!*cur) return false;
+//    move_next_mtx.lock();
+//    if(++cur == client_list.end()) {
+//      cur = client_list.begin();
+//      if(cur == client_list.end()) { // if list is empty
+//        move_next_mtx.unlock();
+//        return false;
+//      }
+//    }
+//    move_next_mtx.unlock();
+//    return true;
+//  };
 
 
-  while(_status == status::up) {
+//  auto removeThread = [&this_thr_id, this]() {
+//    client_handler_mutex.lock();
+//    for(auto it = client_handler_threads.begin(),
+//        end = client_handler_threads.end();
+//        it != end ;++it) if(it->get_id() == this_thr_id) {
+//      it->detach();
+//      client_handler_threads.erase(it);
+//      client_handler_mutex.unlock();
+//      return;
+//    }
+//    client_handler_mutex.unlock();
+//  };
 
-    if(!*cur) { // If client element is remove
-      if(moveToNextClient()) continue;
-      else { removeThread(); return; }
-    } else if(!(*cur)->access_mtx.try_lock()) { // If client is handle now from other thread
-      if(moveToNextClient()) continue;
-      else { removeThread(); return; }
-    }
-
-    if(DataBuffer data = (*cur)->loadData(); data.size) {
-      createThread();
-
-      handler(data, **cur);
-
-      (*cur)->access_mtx.unlock();
-      removeThread();
-      return;
-
-    } else {
-
-      // Remove disconnected client
-      if((*cur)->_status != SocketStatus::connected) {
-        disconnect_hndl(**cur);
-        client_mutex.lock();
-
-        // If client_list.length() == 1;
-        if(client_list.begin() == --client_list.end()) {
-          (*cur)->access_mtx.unlock();
-          client_list.erase(cur);
-          removeThread();
-          client_mutex.unlock();
-          return;
-        }
-
-        auto prev = cur;
-        auto last_cur = cur;
-        if(prev == client_list.begin()) prev = --client_list.end();
-        else --prev;
-
-        bool move_res = moveToNextClient();
-        (*prev)->move_next_mtx.lock();
-        (*last_cur)->access_mtx.unlock();
-        client_list.erase(last_cur);
-        (*prev)->move_next_mtx.unlock();
-
-        client_mutex.unlock();
-        if(move_res) continue;
-        else {removeThread(); return;}
-        return;
-      }
-
-      // Move to next client
-      (*cur)->access_mtx.unlock();
-      if(moveToNextClient()) continue;
-      else {removeThread(); return;}
-    }
-
-  }
+//  auto createThread = [this, &cur]() mutable {
+//    client_handler_mutex.lock();
+//    client_handler_threads.emplace_back([this, cur]() mutable {
+//      client_mutex.lock_shared();
+//      auto it = (++cur == client_list.end())? client_list.begin() : cur;
+//      client_mutex.unlock_shared();
+//      clientHandler(it);
+//    });
+//    client_handler_mutex.unlock();
+//  };
 
 
-}
+//  while(_status == status::up) {
+
+//    if(!*cur) { // If client element is remove
+//      if(moveToNextClient()) continue;
+//      else { removeThread(); return; }
+//    } else if(!(*cur)->access_mtx.try_lock()) { // If client is handle now from other thread
+//      if(moveToNextClient()) continue;
+//      else { removeThread(); return; }
+//    }
+
+//    if(DataBuffer data = (*cur)->loadData(); data.size) {
+//      createThread();
+
+//      handler(data, **cur);
+
+//      (*cur)->access_mtx.unlock();
+//      removeThread();
+//      return;
+
+//    } else {
+
+//      // Remove disconnected client
+//      if((*cur)->_status != SocketStatus::connected) {
+//        disconnect_hndl(**cur);
+//        client_mutex.lock();
+
+//        // If client_list.length() == 1;
+//        if(client_list.begin() == --client_list.end()) {
+//          (*cur)->access_mtx.unlock();
+//          client_list.erase(cur);
+//          removeThread();
+//          client_mutex.unlock();
+//          return;
+//        }
+
+//        auto prev = cur;
+//        auto last_cur = cur;
+//        if(prev == client_list.begin()) prev = --client_list.end();
+//        else --prev;
+
+//        bool move_res = moveToNextClient();
+//        (*prev)->move_next_mtx.lock();
+//        (*last_cur)->access_mtx.unlock();
+//        client_list.erase(last_cur);
+//        (*prev)->move_next_mtx.unlock();
+
+//        client_mutex.unlock();
+//        if(move_res) continue;
+//        else {removeThread(); return;}
+//        return;
+//      }
+
+//      // Move to next client
+//      (*cur)->access_mtx.unlock();
+//      if(moveToNextClient()) continue;
+//      else {removeThread(); return;}
+//    }
+
+//  }
+
+
+//}

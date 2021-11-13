@@ -73,9 +73,9 @@ private:
 
   // Client & Client handling
   std::list<std::unique_ptr<Client>> client_list;
-  std::shared_mutex client_mutex;
-  std::list<std::thread> client_handler_threads;
-  std::mutex client_handler_mutex;
+//  std::shared_mutex client_mutex;
+//  std::list<std::thread> client_handler_threads;
+//  std::mutex client_handler_mutex;
 
 #ifdef _WIN32 // Windows NT
   WSAData w_data;
@@ -83,7 +83,7 @@ private:
 
   void handlingLoop();
   bool enableKeepAlive(Socket socket);
-  void clientHandler(ClientIterator cur);
+//  void clientHandler(ClientIterator cur);
 
 public:
   TcpServer(const uint16_t port,
@@ -106,7 +106,7 @@ public:
   void stop();
   void joinLoop();
 
-  bool connectTo(uint32_t host, uint16_t port);
+  bool connectTo(uint32_t host, uint16_t port, con_handler_function_t connect_hndl);
 
   void sendData(const void* buffer, const size_t size);
   bool sendDataBy(uint32_t host, uint16_t port, const void* buffer, const size_t size);
@@ -118,7 +118,7 @@ struct TcpServer::Client : public TcpClientBase {
   friend struct TcpServer;
 
   std::mutex access_mtx;
-  std::mutex move_next_mtx;
+//  std::mutex move_next_mtx;
   SocketAddr_in address;
   Socket socket;
   status _status = status::connected;

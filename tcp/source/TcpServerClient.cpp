@@ -88,6 +88,7 @@ inline int convertError() {
 #include <iostream>
 
 DataBuffer TcpServer::Client::loadData() {
+  if(_status != SocketStatus::connected) return DataBuffer();
   using namespace std::chrono_literals;
   DataBuffer buffer;
   int err;
@@ -152,6 +153,7 @@ TcpClientBase::status TcpServer::Client::disconnect() {
 }
 
 bool TcpServer::Client::sendData(const void* buffer, const size_t size) const {
+  if(_status != SocketStatus::connected) return false;
   void* send_buffer = malloc(size + sizeof (int));
   memcpy(reinterpret_cast<char*>(send_buffer) + sizeof(int), buffer, size);
   *reinterpret_cast<int*>(send_buffer) = size;
