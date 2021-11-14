@@ -19,35 +19,57 @@ int main() {
   using namespace std::chrono_literals;
   TcpClient client;
   if(client.connectTo(LOCALHOST_IP, 8081) == SocketStatus::connected) {
+      std::clog << "Client connected\n";
 
-    client.setHandler([](DataBuffer data) {
-      std::clog << "Recived " << data.size << " bytes: " << (char*)data.data_ptr << '\n';
-    });
-    client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
-
-    std::clog << "Client connected\n";
-
+        client.setHandler([](DataBuffer data) {
+          std::clog << "Recived " << data.size << " bytes: " << (char*)data.data_ptr << '\n';
+        });
+        client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
+        std::this_thread::sleep_for(1s);
     client.disconnect();
 
-    std::this_thread::sleep_for(1s);
 
     client.connectTo(LOCALHOST_IP, 8081);
-    client.setHandler([](DataBuffer data) {
-      std::clog << "Recived " << data.size << " bytes: " << (char*)data.data_ptr << '\n';
-    });
-    client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
+        client.setHandler([](DataBuffer data) {
+          std::clog << "Recived " << data.size << " bytes: " << (char*)data.data_ptr << '\n';
+        });
+        client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
+        client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
+        client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
+        client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
+        client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
+        client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
+        client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
+        client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
+        client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
+        std::this_thread::sleep_for(1s);
     client.disconnect();
-
-    std::this_thread::sleep_for(1s);
 
     client.connectTo(LOCALHOST_IP, 8081);
-    client.setHandler([](DataBuffer data) {
-      std::clog << "Recived " << data.size << " bytes: " << (char*)data.data_ptr << '\n';
-    });
-    client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
+        client.setHandler([](DataBuffer data) {
+          std::clog << "Recived " << data.size << " bytes: " << (char*)data.data_ptr << '\n';
+        });
+        client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
+        client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
+        client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
+        client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
+        client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
+        client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
+        client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
+        client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
+        client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
+        client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
+        client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
+        client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
+        client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
+        client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
+        client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
+        client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
+        client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
+        client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
+        std::this_thread::sleep_for(1s);
     client.disconnect();
 
-    std::this_thread::sleep_for(1s);
 
 
   } else {

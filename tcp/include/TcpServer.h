@@ -66,14 +66,15 @@ private:
   handler_function_t handler;
   con_handler_function_t connect_hndl = [](Client&){};
   con_handler_function_t disconnect_hndl = [](Client&){};
-  std::thread handler_thread;
+  std::thread accept_handler_thread;
+  std::thread data_waiter_thread;
   typedef std::list<std::unique_ptr<Client>>::iterator ClientIterator;
 
   KeepAliveConfig ka_conf;
 
   // Client & Client handling
   std::list<std::unique_ptr<Client>> client_list;
-//  std::shared_mutex client_mutex;
+  std::mutex client_mutex;
 //  std::list<std::thread> client_handler_threads;
 //  std::mutex client_handler_mutex;
 
@@ -81,8 +82,9 @@ private:
   WSAData w_data;
 #endif
 
-  void handlingLoop();
   bool enableKeepAlive(Socket socket);
+  void handlingAcceptLoop();
+  void waitingDataLoop();
 //  void clientHandler(ClientIterator cur);
 
 public:

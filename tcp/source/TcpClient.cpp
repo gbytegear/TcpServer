@@ -208,12 +208,15 @@ std::thread& TcpClient::setHandler(TcpClient::handler_function_t handler) {
   if(handler_thread) return *handler_thread;
 
   handler_thread = std::unique_ptr<std::thread>(new std::thread([this](){
-    while(_status == status::connected)
+    using namespace std::chrono_literals;
+    while(_status == status::connected) {
       if(DataBuffer data = loadData(); data) {
         handle_mutex.lock();
         handler_func(std::move(data));
         handle_mutex.unlock();
       }
+      std::this_thread::sleep_for(50ms);
+    }
   }));
 
   return *handler_thread;
