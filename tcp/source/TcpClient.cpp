@@ -1,6 +1,9 @@
 #include "../include/TcpClient.h"
 #include <stdio.h>
 #include <cstring>
+#include <iostream>
+
+using namespace stcp;
 
 #ifdef _WIN32
 #define WIN(exp) exp
@@ -81,8 +84,6 @@ inline int convertError() {
     }
 }
 
-
-
 #else
 #define WIN(exp)
 #define NIX(exp) exp
@@ -139,12 +140,13 @@ DataBuffer TcpClient::loadData() {
 #ifdef NONBLOCK
     using namespace std::chrono_literals;
     DataBuffer buffer;
+    uint32_t size;
     int err;
 
     // Read data length in non-blocking mode
     // MSG_DONTWAIT - Unix non-blocking read
     WIN(if(u_long t = true; SOCKET_ERROR == ioctlsocket(client_socket, FIONBIO, &t)) return DataBuffer();) // Windows non-blocking mode on
-    int answ = recv(client_socket, (char*)&buffer.size, sizeof (buffer.size), NIX(MSG_DONTWAIT)WIN(0));
+    int answ = recv(client_socket, (char*)&size, sizeof (size), NIX(MSG_DONTWAIT)WIN(0));
 
     // Disconnect
     if(!answ) {
@@ -178,15 +180,13 @@ DataBuffer TcpClient::loadData() {
         case EAGAIN: return DataBuffer();
         default:
           disconnect();
-//          std::cerr << "Unhandled error!\n"
-//                      << "Code: " << err << " Err: " << std::strerror(err) << '\n';
         return DataBuffer();
       }
     }
 
-    if(!buffer.size) return DataBuffer();
-    buffer.data_ptr = (char*)malloc(buffer.size);
-    recv(client_socket, (char*)buffer.data_ptr, buffer.size, 0);
+    if(!size) return DataBuffer();
+    buffer.resize(size);
+    recv(client_socket, (char*)buffer.data(), buffer.size(), 0);
     return buffer;
 
 #else
@@ -201,25 +201,36 @@ DataBuffer TcpClient::loadData() {
 }
 
 std::thread& TcpClient::setHandler(TcpClient::handler_function_t handler) {
-  handle_mutex.lock();
-  handler_func = handler;
-  handle_mutex.unlock();
+  {
+    std::lock_guard lock(handle_mutex);
+    handler_func = handler;
+  }
 
   if(handler_thread) return *handler_thread;
 
   handler_thread = std::unique_ptr<std::thread>(new std::thread([this](){
     using namespace std::chrono_literals;
-    while(_status == status::connected) {
-      if(DataBuffer data = loadData(); data) {
-        handle_mutex.lock();
-        handler_func(std::move(data));
-        handle_mutex.unlock();
+    try {
+      while(_status == status::connected) {
+        if(DataBuffer data = loadData(); !data.empty()) {
+          std::lock_guard lock(handle_mutex);
+          handler_func(std::move(data));
+        } else if (_status != status::connected) return;
+        std::this_thread::sleep_for(50ms);
       }
-      std::this_thread::sleep_for(50ms);
+    }  catch (std::exception& except) {
+      std::cerr << except.what() << std::endl;
+      return;
     }
   }));
 
   return *handler_thread;
+}
+
+void TcpClient::joinHandler() {
+  if(handler_thread)
+    if(handler_thread->joinable())
+      handler_thread->join();
 }
 
 bool TcpClient::sendData(const void* buffer, const size_t size) const {

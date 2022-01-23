@@ -23,5 +23,5 @@ SOURCES += server/main.cpp \
         tcp/source/TcpServerClient.cpp
 
 HEADERS += \
-        tcp/include/general.h
-        tcp/include/TcpServer.h \
+        tcp/include/general.h \
+        tcp/include/TcpServer.h

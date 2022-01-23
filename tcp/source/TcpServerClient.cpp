@@ -1,5 +1,7 @@
 #include "../include/TcpServer.h"
 
+using namespace stcp;
+
 #ifdef _WIN32
 #define WIN(exp) exp
 #define NIX(exp)
@@ -91,12 +93,13 @@ DataBuffer TcpServer::Client::loadData() {
   if(_status != SocketStatus::connected) return DataBuffer();
   using namespace std::chrono_literals;
   DataBuffer buffer;
+  uint32_t size;
   int err;
 
   // Read data length in non-blocking mode
   // MSG_DONTWAIT - Unix non-blocking read
   WIN(if(u_long t = true; SOCKET_ERROR == ioctlsocket(socket, FIONBIO, &t)) return DataBuffer();) // Windows non-blocking mode on
-  int answ = recv(socket, (char*)&buffer.size, sizeof (buffer.size), NIX(MSG_DONTWAIT)WIN(0));
+  int answ = recv(socket, (char*)&size, sizeof(size), NIX(MSG_DONTWAIT)WIN(0));
 
   // Disconnect
   if(!answ) {
@@ -136,9 +139,9 @@ DataBuffer TcpServer::Client::loadData() {
     }
   }
 
-  if(!buffer.size) return DataBuffer();
-  buffer.data_ptr = (char*)malloc(buffer.size);
-  recv(socket, (char*)buffer.data_ptr, buffer.size, 0);
+  if(!size) return DataBuffer();
+  buffer.resize(size);
+  recv(socket, buffer.data(), buffer.size(), 0);
   return buffer;
 }
 
@@ -154,10 +157,13 @@ TcpClientBase::status TcpServer::Client::disconnect() {
 
 bool TcpServer::Client::sendData(const void* buffer, const size_t size) const {
   if(_status != SocketStatus::connected) return false;
-  void* send_buffer = malloc(size + sizeof (int));
-  memcpy(reinterpret_cast<char*>(send_buffer) + sizeof(int), buffer, size);
-  *reinterpret_cast<int*>(send_buffer) = size;
+
+  void* send_buffer = malloc(size + sizeof (uint32_t));
+  memcpy(reinterpret_cast<char*>(send_buffer) + sizeof(uint32_t), buffer, size);
+  *reinterpret_cast<uint32_t*>(send_buffer) = size;
+
   if(send(socket, reinterpret_cast<char*>(send_buffer), size + sizeof (int), 0) < 0) return false;
+
   free(send_buffer);
   return true;
 }

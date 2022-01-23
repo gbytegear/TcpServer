@@ -19,22 +19,10 @@ typedef int socket_t;
 #endif
 
 #include "general.h"
-#include <functional>
-#include <thread>
-#include <mutex>
 #include <memory.h>
 
-#ifdef _WIN32 // Windows NT
-typedef int SockLen_t;
-typedef SOCKADDR_IN SocketAddr_in;
-typedef SOCKET Socket;
-typedef u_long ka_prop_t;
-#else // POSIX
-typedef socklen_t SockLen_t;
-typedef struct sockaddr_in SocketAddr_in;
-typedef int Socket;
-typedef int ka_prop_t;
-#endif
+/// Sipmple TCP
+namespace stcp {
 
 #define NONBLOCK
 
@@ -44,7 +32,6 @@ struct TcpClient : public TcpClientBase {
 
   std::mutex handle_mutex;
   std::function<void(DataBuffer)> handler_func = [](DataBuffer){};
-//  std::optional<std::thread> handler_thread;
   std::unique_ptr<std::thread> handler_thread;
 #ifdef _WIN32
   WSAData w_data;
@@ -65,9 +52,12 @@ public:
 
   virtual DataBuffer loadData() override;
   std::thread& setHandler(handler_function_t handler);
+  void joinHandler();
 
   virtual bool sendData(const void* buffer, const size_t size) const override;
   virtual SocketType getType() const override {return SocketType::client_socket;}
 };
+
+}
 
 #endif // TCPCLIENT_H

@@ -9,34 +9,23 @@
 #include <shared_mutex>
 
 #ifdef _WIN32 // Windows NT
-
 #include <WinSock2.h>
 #include <mstcpip.h>
-
 #else // *nix
 
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
-
 #endif
 
 #include "general.h"
 
-#ifdef _WIN32 // Windows NT
-typedef int SockLen_t;
-typedef SOCKADDR_IN SocketAddr_in;
-typedef SOCKET Socket;
-typedef u_long ka_prop_t;
-#else // POSIX
-typedef socklen_t SockLen_t;
-typedef struct sockaddr_in SocketAddr_in;
-typedef int Socket;
-typedef int ka_prop_t;
-#endif
+/// Sipmple TCP
+namespace stcp {
 
 struct KeepAliveConfig{
   ka_prop_t ka_idle = 120;
@@ -49,6 +38,8 @@ struct TcpServer {
   class ClientList;
   typedef std::function<void(DataBuffer, Client&)> handler_function_t;
   typedef std::function<void(Client&)> con_handler_function_t;
+  static constexpr auto default_data_handler = [](DataBuffer, Client&){};
+  static constexpr auto default_connsection_handler = [](Client&){};
 
   enum class status : uint8_t {
     up = 0,
@@ -59,57 +50,66 @@ struct TcpServer {
     close = 5
   };
 
+#ifdef _WIN32 // Windows NT
+  class _WinSocketIniter {
+    WSAData w_data;
+  public:
+    _WinSocketIniter() {
+      WSAStartup(MAKEWORD(2, 2), &w_data)
+    }
+
+    ~_WinSocketIniter() {
+      WSACleanup()
+    }
+  };
+#endif
+
 private:
   Socket serv_socket;
   uint16_t port;
   status _status = status::close;
-  handler_function_t handler;
-  con_handler_function_t connect_hndl = [](Client&){};
-  con_handler_function_t disconnect_hndl = [](Client&){};
-  std::thread accept_handler_thread;
-  std::thread data_waiter_thread;
+  handler_function_t handler = default_data_handler;
+  con_handler_function_t connect_hndl = default_connsection_handler;
+  con_handler_function_t disconnect_hndl = default_connsection_handler;
+
+  ThreadPool thread_pool;
   typedef std::list<std::unique_ptr<Client>>::iterator ClientIterator;
-
   KeepAliveConfig ka_conf;
-
-  // Client & Client handling
   std::list<std::unique_ptr<Client>> client_list;
   std::mutex client_mutex;
-//  std::list<std::thread> client_handler_threads;
-//  std::mutex client_handler_mutex;
-
-#ifdef _WIN32 // Windows NT
-  WSAData w_data;
-#endif
 
   bool enableKeepAlive(Socket socket);
   void handlingAcceptLoop();
   void waitingDataLoop();
-//  void clientHandler(ClientIterator cur);
 
 public:
   TcpServer(const uint16_t port,
-            handler_function_t handler,
-            KeepAliveConfig ka_conf = {});
-  TcpServer(const uint16_t port,
-            handler_function_t handler,
-            con_handler_function_t connect_hndl,
-            con_handler_function_t disconnect_hndl,
-            KeepAliveConfig ka_conf = {});
+            KeepAliveConfig ka_conf = {},
+            handler_function_t handler = default_data_handler,
+            con_handler_function_t connect_hndl = default_connsection_handler,
+            con_handler_function_t disconnect_hndl = default_connsection_handler,
+            uint thread_count = std::thread::hardware_concurrency()
+            );
 
   ~TcpServer();
 
   //! Set client handler
   void setHandler(handler_function_t handler);
+
+  ThreadPool& getThreadPool() {return thread_pool;}
+
+  // Server properties getters
   uint16_t getPort() const;
   uint16_t setPort(const uint16_t port);
   status getStatus() const {return _status;}
+
+  // Server status manip
   status start();
   void stop();
   void joinLoop();
 
+  // Server client management
   bool connectTo(uint32_t host, uint16_t port, con_handler_function_t connect_hndl);
-
   void sendData(const void* buffer, const size_t size);
   bool sendDataBy(uint32_t host, uint16_t port, const void* buffer, const size_t size);
   bool disconnectBy(uint32_t host, uint16_t port);
@@ -120,7 +120,6 @@ struct TcpServer::Client : public TcpClientBase {
   friend struct TcpServer;
 
   std::mutex access_mtx;
-//  std::mutex move_next_mtx;
   SocketAddr_in address;
   Socket socket;
   status _status = status::connected;
@@ -138,5 +137,7 @@ public:
   virtual bool sendData(const void* buffer, const size_t size) const override;
   virtual SocketType getType() const override {return SocketType::server_socket;}
 };
+
+}
 
 #endif // TCPSERVER_H

@@ -3,9 +3,14 @@
 #include <cstring>
 #include <mutex>
 
+using namespace stcp;
+
+
 #ifdef _WIN32
 #define WIN(exp) exp
 #define NIX(exp)
+
+inline _WinSocketIniter winsock_initer;
 
 inline int convertError() {
     switch (WSAGetLastError()) {
@@ -87,21 +92,23 @@ inline int convertError() {
 #endif
 
 TcpServer::TcpServer(const uint16_t port,
-                     handler_function_t handler,
-                     KeepAliveConfig ka_conf)
-  : TcpServer(port, handler, [](Client&){}, [](Client&){}, ka_conf) {}
-
-TcpServer::TcpServer(const uint16_t port,
+                     KeepAliveConfig ka_conf,
                      handler_function_t handler,
                      con_handler_function_t connect_hndl,
                      con_handler_function_t disconnect_hndl,
-                     KeepAliveConfig ka_conf)
-  : port(port), handler(handler), connect_hndl(connect_hndl), disconnect_hndl(disconnect_hndl), ka_conf(ka_conf) {}
+                     uint thread_count
+                     )
+  : port(port),
+    handler(handler),
+    connect_hndl(connect_hndl),
+    disconnect_hndl(disconnect_hndl),
+    thread_pool(thread_count),
+    ka_conf(ka_conf)
+    {}
 
 TcpServer::~TcpServer() {
   if(_status == status::up)
     stop();
-	WIN(WSACleanup());
 }
 
 void TcpServer::setHandler(TcpServer::handler_function_t handler) {this->handler = handler;}
@@ -117,7 +124,6 @@ TcpServer::status TcpServer::start() {
   int flag;
   if(_status == status::up) stop();
 
-  WIN(if(WSAStartup(MAKEWORD(2, 2), &w_data) == 0) {})
   SocketAddr_in address;
   address.sin_addr
       WIN(.S_un.S_addr)NIX(.s_addr) = INADDR_ANY;
@@ -128,33 +134,35 @@ TcpServer::status TcpServer::start() {
   if((serv_socket = socket(AF_INET, SOCK_STREAM, 0)) WIN(== INVALID_SOCKET)NIX(== -1))
      return _status = status::err_socket_init;
 
-  flag = true;
-  if((setsockopt(serv_socket, SOL_SOCKET, SO_REUSEADDR, WIN((char*))&flag, sizeof(flag)) == -1) ||
+  // Set nonblock accept
+  NIX(
+  if(int flags = fcntl(serv_socket, F_GETFL);
+     fcntl(serv_socket, F_GETFL, flags | O_NONBLOCK) < 0) {
+    return _status = status::err_socket_init;
+  })
+
+  // Bind address to socket
+  if(flag = true;
+     (setsockopt(serv_socket, SOL_SOCKET, SO_REUSEADDR, WIN((char*))&flag, sizeof(flag)) == -1) ||
      (bind(serv_socket, (struct sockaddr*)&address, sizeof(address)) WIN(== SOCKET_ERROR)NIX(< 0)))
      return _status = status::err_socket_bind;
 
   if(listen(serv_socket, SOMAXCONN) WIN(== SOCKET_ERROR)NIX(< 0))
     return _status = status::err_socket_listening;
   _status = status::up;
-  accept_handler_thread = std::thread([this]{handlingAcceptLoop();});
-  data_waiter_thread = std::thread([this]{waitingDataLoop();});
+  thread_pool.addJob([this]{handlingAcceptLoop();});
+  thread_pool.addJob([this]{waitingDataLoop();});
   return _status;
 }
 
 void TcpServer::stop() {
   _status = status::close;
   WIN(closesocket)NIX(close)(serv_socket);
-
-  joinLoop();
-//  client_handler_mutex.lock();
-//  for(std::thread& cl_thr : client_handler_threads)
-//    cl_thr.join();
-//  client_handler_mutex.unlock();
-//  client_handler_threads.clear();
+  thread_pool.stop();
   client_list.clear();
 }
 
-void TcpServer::joinLoop() {accept_handler_thread.join(); data_waiter_thread.join();}
+void TcpServer::joinLoop() {thread_pool.join();}
 
 bool TcpServer::connectTo(uint32_t host, uint16_t port, con_handler_function_t connect_hndl) {
   Socket client_socket;
@@ -170,8 +178,7 @@ bool TcpServer::connectTo(uint32_t host, uint16_t port, con_handler_function_t c
   address.sin_port = htons(port);
 
   if(connect(client_socket, (sockaddr *)&address, sizeof(address))
-     WIN(== SOCKET_ERROR)NIX(!= 0)
-     ) {
+     WIN(== SOCKET_ERROR)NIX(!= 0)) {
     WIN(closesocket(client_socket);)NIX(close(client_socket);)
     return false;
   }
@@ -186,8 +193,6 @@ bool TcpServer::connectTo(uint32_t host, uint16_t port, con_handler_function_t c
   client_mutex.lock();
   client_list.emplace_back(std::move(client));
   client_mutex.unlock();
-//  if(client_handler_threads.empty())
-//    client_handler_threads.emplace_back(std::thread([this]{clientHandler(client_list.begin());}));
   return true;
 }
 
@@ -225,45 +230,42 @@ void TcpServer::disconnectAll() {
 
 void TcpServer::handlingAcceptLoop() {
   SockLen_t addrlen = sizeof(SocketAddr_in);
-  while (_status == status::up) {
-    SocketAddr_in client_addr;
-    if (Socket client_socket = accept(serv_socket, (struct sockaddr*)&client_addr, &addrlen);
-        client_socket WIN(!= 0)NIX(>= 0) && _status == status::up) {
+  SocketAddr_in client_addr;
+  if (Socket client_socket = accept(serv_socket, (struct sockaddr*)&client_addr, &addrlen);
+      client_socket WIN(!= 0)NIX(>= 0) && _status == status::up) {
 
-      if(client_socket == WIN(INVALID_SOCKET)NIX(-1)) continue;
-
-      // Enable keep alive for client
-      if(!enableKeepAlive(client_socket)) {
-        shutdown(client_socket, 0);
-        WIN(closesocket)NIX(close)(client_socket);
-      }
-
+    // Enable keep alive for client
+    if(enableKeepAlive(client_socket)) {
       std::unique_ptr<Client> client(new Client(client_socket, client_addr));
       connect_hndl(*client);
       client_mutex.lock();
       client_list.emplace_back(std::move(client));
       client_mutex.unlock();
+    } else {
+      shutdown(client_socket, 0);
+      WIN(closesocket)NIX(close)(client_socket);
     }
   }
 
+  if(_status == status::up)thread_pool.addJob([this](){handlingAcceptLoop();});
 }
 
 void TcpServer::waitingDataLoop() {
-  using namespace std::chrono_literals;
-  while (true) {
-
-    client_mutex.lock();
+  {
+    std::lock_guard lock(client_mutex);
     for(auto it = client_list.begin(), end = client_list.end(); it != end; ++it) {
       auto& client = *it;
       if(client){
-        if(DataBuffer data = client->loadData(); data.size) {
-          std::thread([this, _data = std::move(data), &client]{
+        if(DataBuffer data = client->loadData(); !data.empty()) {
+
+          thread_pool.addJob([this, _data = std::move(data), &client]{
             client->access_mtx.lock();
-            handler(_data, *client);
+            handler(std::move(_data), *client);
             client->access_mtx.unlock();
-          }).detach();
+          });
         } else if(client->_status == SocketStatus::disconnected) {
-          std::thread([this, &client, it]{
+
+          thread_pool.addJob([this, &client, it]{
             client->access_mtx.lock();
             Client* pointer = client.release();
             client = nullptr;
@@ -271,14 +273,13 @@ void TcpServer::waitingDataLoop() {
             disconnect_hndl(*pointer);
             client_list.erase(it);
             delete pointer;
-          }).detach();
+          });
         }
       }
     }
-    client_mutex.unlock();
-
-    std::this_thread::sleep_for(50ms);
   }
+
+  if(_status == status::up)thread_pool.addJob([this](){waitingDataLoop();});
 }
 
 bool TcpServer::enableKeepAlive(Socket socket) {
@@ -296,111 +297,3 @@ bool TcpServer::enableKeepAlive(Socket socket) {
 #endif
   return true;
 }
-
-
-//void TcpServer::clientHandler(ClientIterator cur) {
-//  const std::thread::id this_thr_id = std::this_thread::get_id();
-
-//  auto moveToNextClient = [this, &cur]()->bool{
-//    std::mutex& move_next_mtx = (*cur)->move_next_mtx;
-//    if(!*cur) return false;
-//    move_next_mtx.lock();
-//    if(++cur == client_list.end()) {
-//      cur = client_list.begin();
-//      if(cur == client_list.end()) { // if list is empty
-//        move_next_mtx.unlock();
-//        return false;
-//      }
-//    }
-//    move_next_mtx.unlock();
-//    return true;
-//  };
-
-
-//  auto removeThread = [&this_thr_id, this]() {
-//    client_handler_mutex.lock();
-//    for(auto it = client_handler_threads.begin(),
-//        end = client_handler_threads.end();
-//        it != end ;++it) if(it->get_id() == this_thr_id) {
-//      it->detach();
-//      client_handler_threads.erase(it);
-//      client_handler_mutex.unlock();
-//      return;
-//    }
-//    client_handler_mutex.unlock();
-//  };
-
-//  auto createThread = [this, &cur]() mutable {
-//    client_handler_mutex.lock();
-//    client_handler_threads.emplace_back([this, cur]() mutable {
-//      client_mutex.lock_shared();
-//      auto it = (++cur == client_list.end())? client_list.begin() : cur;
-//      client_mutex.unlock_shared();
-//      clientHandler(it);
-//    });
-//    client_handler_mutex.unlock();
-//  };
-
-
-//  while(_status == status::up) {
-
-//    if(!*cur) { // If client element is remove
-//      if(moveToNextClient()) continue;
-//      else { removeThread(); return; }
-//    } else if(!(*cur)->access_mtx.try_lock()) { // If client is handle now from other thread
-//      if(moveToNextClient()) continue;
-//      else { removeThread(); return; }
-//    }
-
-//    if(DataBuffer data = (*cur)->loadData(); data.size) {
-//      createThread();
-
-//      handler(data, **cur);
-
-//      (*cur)->access_mtx.unlock();
-//      removeThread();
-//      return;
-
-//    } else {
-
-//      // Remove disconnected client
-//      if((*cur)->_status != SocketStatus::connected) {
-//        disconnect_hndl(**cur);
-//        client_mutex.lock();
-
-//        // If client_list.length() == 1;
-//        if(client_list.begin() == --client_list.end()) {
-//          (*cur)->access_mtx.unlock();
-//          client_list.erase(cur);
-//          removeThread();
-//          client_mutex.unlock();
-//          return;
-//        }
-
-//        auto prev = cur;
-//        auto last_cur = cur;
-//        if(prev == client_list.begin()) prev = --client_list.end();
-//        else --prev;
-
-//        bool move_res = moveToNextClient();
-//        (*prev)->move_next_mtx.lock();
-//        (*last_cur)->access_mtx.unlock();
-//        client_list.erase(last_cur);
-//        (*prev)->move_next_mtx.unlock();
-
-//        client_mutex.unlock();
-//        if(move_res) continue;
-//        else {removeThread(); return;}
-//        return;
-//      }
-
-//      // Move to next client
-//      (*cur)->access_mtx.unlock();
-//      if(moveToNextClient()) continue;
-//      else {removeThread(); return;}
-//    }
-
-//  }
-
-
-//}
