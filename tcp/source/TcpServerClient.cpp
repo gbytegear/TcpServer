@@ -100,6 +100,7 @@ DataBuffer TcpServer::Client::loadData() {
   // MSG_DONTWAIT - Unix non-blocking read
   WIN(if(u_long t = true; SOCKET_ERROR == ioctlsocket(socket, FIONBIO, &t)) return DataBuffer();) // Windows non-blocking mode on
   int answ = recv(socket, (char*)&size, sizeof(size), NIX(MSG_DONTWAIT)WIN(0));
+  WIN(if(u_long t = false; SOCKET_ERROR == ioctlsocket(socket, FIONBIO, &t)) return DataBuffer();) // Windows non-blocking mode off
 
   // Disconnect
   if(!answ) {
@@ -119,7 +120,6 @@ DataBuffer TcpServer::Client::loadData() {
       if(!err) err = errno;
     )
 
-    WIN(if(u_long t = false; SOCKET_ERROR == ioctlsocket(socket, FIONBIO, &t)) return DataBuffer();) // Windows non-blocking mode off
 
     switch (err) {
       case 0: break;

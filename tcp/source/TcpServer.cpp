@@ -12,80 +12,6 @@ using namespace stcp;
 
 inline _WinSocketIniter winsock_initer;
 
-inline int convertError() {
-    switch (WSAGetLastError()) {
-    case 0:
-        return 0;
-    case WSAEINTR:
-        return EINTR;
-    case WSAEINVAL:
-        return EINVAL;
-    case WSA_INVALID_HANDLE:
-        return EBADF;
-    case WSA_NOT_ENOUGH_MEMORY:
-        return ENOMEM;
-    case WSA_INVALID_PARAMETER:
-        return EINVAL;
-    case WSAENAMETOOLONG:
-        return ENAMETOOLONG;
-    case WSAENOTEMPTY:
-        return ENOTEMPTY;
-    case WSAEWOULDBLOCK:
-        return EAGAIN;
-    case WSAEINPROGRESS:
-        return EINPROGRESS;
-    case WSAEALREADY:
-        return EALREADY;
-    case WSAENOTSOCK:
-        return ENOTSOCK;
-    case WSAEDESTADDRREQ:
-        return EDESTADDRREQ;
-    case WSAEMSGSIZE:
-        return EMSGSIZE;
-    case WSAEPROTOTYPE:
-        return EPROTOTYPE;
-    case WSAENOPROTOOPT:
-        return ENOPROTOOPT;
-    case WSAEPROTONOSUPPORT:
-        return EPROTONOSUPPORT;
-    case WSAEOPNOTSUPP:
-        return EOPNOTSUPP;
-    case WSAEAFNOSUPPORT:
-        return EAFNOSUPPORT;
-    case WSAEADDRINUSE:
-        return EADDRINUSE;
-    case WSAEADDRNOTAVAIL:
-        return EADDRNOTAVAIL;
-    case WSAENETDOWN:
-        return ENETDOWN;
-    case WSAENETUNREACH:
-        return ENETUNREACH;
-    case WSAENETRESET:
-        return ENETRESET;
-    case WSAECONNABORTED:
-        return ECONNABORTED;
-    case WSAECONNRESET:
-        return ECONNRESET;
-    case WSAENOBUFS:
-        return ENOBUFS;
-    case WSAEISCONN:
-        return EISCONN;
-    case WSAENOTCONN:
-        return ENOTCONN;
-    case WSAETIMEDOUT:
-        return ETIMEDOUT;
-    case WSAECONNREFUSED:
-        return ECONNREFUSED;
-    case WSAELOOP:
-        return ELOOP;
-    case WSAEHOSTUNREACH:
-        return EHOSTUNREACH;
-    default:
-        return EIO;
-    }
-}
-
-
 #else
 #define WIN(exp)
 #define NIX(exp) exp
@@ -131,15 +57,19 @@ TcpServer::status TcpServer::start() {
   address.sin_family = AF_INET;
 
 
-  if((serv_socket = socket(AF_INET, SOCK_STREAM, 0)) WIN(== INVALID_SOCKET)NIX(== -1))
+  if((serv_socket = socket(AF_INET, SOCK_STREAM NIX(| SOCK_NONBLOCK), 0)) WIN(== INVALID_SOCKET)NIX(== -1))
      return _status = status::err_socket_init;
 
-  // Set nonblock accept
-  NIX(
-  if(int flags = fcntl(serv_socket, F_GETFL);
-     fcntl(serv_socket, F_GETFL, flags | O_NONBLOCK) < 0) {
+  // Set nonblocking accept
+//  NIX( // not needed becouse socket created with flag SOCK_NONBLOCK
+//  if(fcntl(serv_socket, F_SETFL, fcntl(serv_socket, F_GETFL, 0) | O_NONBLOCK) < 0) {
+//    return _status = status::err_socket_init;
+//  })
+  WIN(
+  if(unsigned long mode = 0; ioctlsocket(serv_socket, FIONBIO, &mode) == SOCKET_ERROR) {
     return _status = status::err_socket_init;
   })
+
 
   // Bind address to socket
   if(flag = true;
@@ -156,9 +86,9 @@ TcpServer::status TcpServer::start() {
 }
 
 void TcpServer::stop() {
+  thread_pool.dropUnstartedJobs();
   _status = status::close;
   WIN(closesocket)NIX(close)(serv_socket);
-  thread_pool.stop();
   client_list.clear();
 }
 
@@ -231,7 +161,9 @@ void TcpServer::disconnectAll() {
 void TcpServer::handlingAcceptLoop() {
   SockLen_t addrlen = sizeof(SocketAddr_in);
   SocketAddr_in client_addr;
-  if (Socket client_socket = accept(serv_socket, (struct sockaddr*)&client_addr, &addrlen);
+  if (Socket client_socket =
+      WIN(accept(serv_socket, (struct sockaddr*)&client_addr, &addrlen))
+      NIX(accept4(serv_socket, (struct sockaddr*)&client_addr, &addrlen, SOCK_NONBLOCK));
       client_socket WIN(!= 0)NIX(>= 0) && _status == status::up) {
 
     // Enable keep alive for client
@@ -247,7 +179,8 @@ void TcpServer::handlingAcceptLoop() {
     }
   }
 
-  if(_status == status::up)thread_pool.addJob([this](){handlingAcceptLoop();});
+  if(_status == status::up)
+    thread_pool.addJob([this](){handlingAcceptLoop();});
 }
 
 void TcpServer::waitingDataLoop() {
@@ -279,7 +212,8 @@ void TcpServer::waitingDataLoop() {
     }
   }
 
-  if(_status == status::up)thread_pool.addJob([this](){waitingDataLoop();});
+  if(_status == status::up)
+    thread_pool.addJob([this](){waitingDataLoop();});
 }
 
 bool TcpServer::enableKeepAlive(Socket socket) {
