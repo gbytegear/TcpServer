@@ -14,9 +14,8 @@ std::string getHostStr(uint32_t ip, uint16_t port) {
             std::to_string( port );
 }
 
-int main() {
+void runClient(TcpClient& client) {
   using namespace std::chrono_literals;
-  TcpClient client;
   if(client.connectTo(LOCALHOST_IP, 8081) == SocketStatus::connected) {
       std::clog << "Client connected\n";
 
@@ -26,10 +25,29 @@ int main() {
           client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
         });
         client.sendData("Hello, server\0", sizeof ("Hello, server\0"));
-        client.joinHandler();
   } else {
     std::cerr << "Client isn't connected\n";
-    return EXIT_FAILURE;
+    std::exit(EXIT_FAILURE);
   }
+}
+
+int main(int, char**) {
+  ThreadPool thread_pool;
+
+  TcpClient first_client(&thread_pool);
+  TcpClient second_client(&thread_pool);
+  TcpClient thrird_client(&thread_pool);
+  TcpClient fourth_client(&thread_pool);
+
+  runClient(first_client);
+  runClient(second_client);
+  runClient(thrird_client);
+  runClient(fourth_client);
+
+  first_client.joinHandler();
+  second_client.joinHandler();
+  thrird_client.joinHandler();
+  fourth_client.joinHandler();
+
   return EXIT_SUCCESS;
 }

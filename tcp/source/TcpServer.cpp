@@ -10,8 +10,6 @@ using namespace stcp;
 #define WIN(exp) exp
 #define NIX(exp)
 
-inline _WinSocketIniter winsock_initer;
-
 #else
 #define WIN(exp)
 #define NIX(exp) exp

@@ -50,20 +50,6 @@ struct TcpServer {
     close = 5
   };
 
-#ifdef _WIN32 // Windows NT
-  class _WinSocketIniter {
-    WSAData w_data;
-  public:
-    _WinSocketIniter() {
-      WSAStartup(MAKEWORD(2, 2), &w_data)
-    }
-
-    ~_WinSocketIniter() {
-      WSACleanup()
-    }
-  };
-#endif
-
 private:
   Socket serv_socket;
   uint16_t port;

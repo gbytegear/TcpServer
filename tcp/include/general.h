@@ -142,6 +142,24 @@ public:
   virtual SocketType getType() const = 0;
 };
 
+#ifdef _WIN32 // Windows NT
+namespace {
+class _WinSocketIniter {
+  static WSAData w_data;
+public:
+  _WinSocketIniter() {
+    WSAStartup(MAKEWORD(2, 2), &w_data)
+  }
+
+  ~_WinSocketIniter() {
+    WSACleanup()
+  }
+};
+
+static inline _WinSocketIniter _winsock_initer;
+}
+#endif
+
 }
 
 #endif // GENERAL_H

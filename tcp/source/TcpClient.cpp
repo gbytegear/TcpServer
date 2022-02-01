@@ -91,14 +91,53 @@ inline int convertError() {
 #endif
 
 
+void TcpClient::handleSingleThread() {
+  try {
+    while(_status == status::connected) {
+      if(DataBuffer data = loadData(); !data.empty()) {
+        std::lock_guard lock(handle_mutex);
+        handler_func(std::move(data));
+      } else if (_status != status::connected) return;
+    }
+  }  catch (std::exception& except) {
+    std::cerr << except.what() << std::endl;
+    return;
+  }
+}
+
+void TcpClient::handleThreadPool() {
+  try {
+    if(DataBuffer data = loadData(); !data.empty()) {
+      std::lock_guard lock(handle_mutex);
+      handler_func(std::move(data));
+    }
+    if(_status == status::connected) threads.thread_pool->addJob([this]{handleThreadPool();});
+  } catch (std::exception& except) {
+    std::cerr << except.what() << std::endl;
+    return;
+  } catch (...) {
+    std::cerr << "Unhandled exception!" << std::endl;
+    return;
+  }
+}
+
 TcpClient::TcpClient() noexcept : _status(status::disconnected) {}
+TcpClient::TcpClient(ThreadPool* thread_pool) noexcept :
+  thread_management_type(ThreadManagementType::thread_pool),
+  threads(thread_pool),
+  _status(status::disconnected) {}
 
 TcpClient::~TcpClient() {
   disconnect();
   WIN(WSACleanup();)
 
-  if(handler_thread) if(handler_thread->joinable())
-      handler_thread->join();
+      switch (thread_management_type) {
+    case stcp::TcpClient::ThreadManagementType::single_thread:
+      if(threads.thread) threads.thread->join();
+      delete threads.thread;
+    break;
+    case stcp::TcpClient::ThreadManagementType::thread_pool: break;
+  }
 }
 
 TcpClient::status TcpClient::connectTo(uint32_t host, uint16_t port) noexcept {
@@ -129,16 +168,19 @@ TcpClient::status TcpClient::disconnect() noexcept {
 	if(_status != status::connected)
 		return _status;
   _status = status::disconnected;
-  if(handler_thread) handler_thread->join();
-  handler_thread = nullptr;
+  switch (thread_management_type) {
+    case stcp::TcpClient::ThreadManagementType::single_thread:
+      if(threads.thread) threads.thread->join();
+      delete threads.thread;
+    break;
+    case stcp::TcpClient::ThreadManagementType::thread_pool: break;
+  }
   shutdown(client_socket, SD_BOTH);
   WINIX(closesocket(client_socket), close(client_socket));
   return _status;
 }
 
 DataBuffer TcpClient::loadData() {
-#ifdef NONBLOCK
-    using namespace std::chrono_literals;
     DataBuffer buffer;
     uint32_t size;
     int err;
@@ -147,6 +189,7 @@ DataBuffer TcpClient::loadData() {
     // MSG_DONTWAIT - Unix non-blocking read
     WIN(if(u_long t = true; SOCKET_ERROR == ioctlsocket(client_socket, FIONBIO, &t)) return DataBuffer();) // Windows non-blocking mode on
     int answ = recv(client_socket, (char*)&size, sizeof (size), NIX(MSG_DONTWAIT)WIN(0));
+    WIN(if(u_long t = false; SOCKET_ERROR == ioctlsocket(client_socket, FIONBIO, &t)) return DataBuffer();) // Windows non-blocking mode off
 
     // Disconnect
     if(!answ) {
@@ -165,8 +208,6 @@ DataBuffer TcpClient::loadData() {
         getsockopt (client_socket, SOL_SOCKET, SO_ERROR, WIN((char*))&err, &len);
         if(!err) err = errno;
       )
-
-      WIN(if(u_long t = false; SOCKET_ERROR == ioctlsocket(client_socket, FIONBIO, &t)) return DataBuffer();) // Windows non-blocking mode off
 
       switch (err) {
         case 0: break;
@@ -188,49 +229,46 @@ DataBuffer TcpClient::loadData() {
     buffer.resize(size);
     recv(client_socket, (char*)buffer.data(), buffer.size(), 0);
     return buffer;
-
-#else
-  DataBuffer data;
-  recv(client_socket, reinterpret_cast<char*>(&data.size), sizeof(data.size), 0);
-  if(data.size) {
-    data.data_ptr = malloc(data.size);
-    recv(client_socket, reinterpret_cast<char*>(data.data_ptr), data.size, 0);
-  }
-  return data;
-#endif
 }
 
-std::thread& TcpClient::setHandler(TcpClient::handler_function_t handler) {
+DataBuffer TcpClient::loadDataSync() {
+  DataBuffer data;
+  uint32_t size = 0;
+  int answ = recv(client_socket, reinterpret_cast<char*>(&size), sizeof(size), 0);
+  if(size && answ == sizeof (size)) {
+    data.resize(size);
+    recv(client_socket, reinterpret_cast<char*>(data.data()), data.size(), 0);
+  }
+  return data;
+}
+
+void TcpClient::setHandler(TcpClient::handler_function_t handler) {
+
   {
     std::lock_guard lock(handle_mutex);
     handler_func = handler;
   }
 
-  if(handler_thread) return *handler_thread;
-
-  handler_thread = std::unique_ptr<std::thread>(new std::thread([this](){
-    using namespace std::chrono_literals;
-    try {
-      while(_status == status::connected) {
-        if(DataBuffer data = loadData(); !data.empty()) {
-          std::lock_guard lock(handle_mutex);
-          handler_func(std::move(data));
-        } else if (_status != status::connected) return;
-        std::this_thread::sleep_for(50ms);
-      }
-    }  catch (std::exception& except) {
-      std::cerr << except.what() << std::endl;
-      return;
-    }
-  }));
-
-  return *handler_thread;
+  switch (thread_management_type) {
+    case stcp::TcpClient::ThreadManagementType::single_thread:
+      if(threads.thread) return;
+      threads.thread = new std::thread(&TcpClient::handleSingleThread, this);
+    break;
+    case stcp::TcpClient::ThreadManagementType::thread_pool:
+      threads.thread_pool->addJob([this]{handleThreadPool();});
+    break;
+  }
 }
 
 void TcpClient::joinHandler() {
-  if(handler_thread)
-    if(handler_thread->joinable())
-      handler_thread->join();
+  switch (thread_management_type) {
+    case stcp::TcpClient::ThreadManagementType::single_thread:
+      if(threads.thread) threads.thread->join();
+    break;
+    case stcp::TcpClient::ThreadManagementType::thread_pool:
+      threads.thread_pool->join();
+    break;
+  }
 }
 
 bool TcpClient::sendData(const void* buffer, const size_t size) const {
