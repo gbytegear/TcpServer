@@ -1,5 +1,5 @@
 # TcpServer
-Simple Crossplatform Multi-threading TCP/IP Server
+Simple Crossplatform Multi-threading TCP/IP Server for exchanging binary data packages
 
 # Build library
 
@@ -79,6 +79,9 @@ $ g++ <your_code.cpp> -I<path/to/header/files> -L<path/to/static_library> -o <na
 ```
 
 # Development notes:
+
+Binary package structure - `[32-bit size header (uint32_t)][Variable size data...]`
+
 **New client handling way.**
 
 <img src="https://raw.githubusercontent.com/gbytegear/TcpServer/master/doc/ClientHandling.jpg">
