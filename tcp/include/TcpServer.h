@@ -1,16 +1,14 @@
-#ifndef TCPSERVER_H
+﻿#ifndef TCPSERVER_H
 #define TCPSERVER_H
 
 #include <functional>
-#include <list>
+#include <set>
 
 #include <thread>
 #include <mutex>
 #include <shared_mutex>
 
 #ifdef _WIN32 // Windows NT
-#include <WinSock2.h>
-#include <mstcpip.h>
 #else // *nix
 
 #include <sys/socket.h>
@@ -34,7 +32,46 @@ struct KeepAliveConfig{
 };
 
 struct TcpServer {
-  struct Client;
+  struct Client : public TcpClientBase {
+    friend struct TcpServer;
+
+    std::mutex access_mtx;
+    SocketAddr_in address;
+    Socket socket;
+    status _status = status::connected;
+
+
+  public:
+    Client(Socket socket, SocketAddr_in address);
+    virtual ~Client() override;
+    virtual uint32_t getHost() const override;
+    virtual uint16_t getPort() const override;
+    virtual status getStatus() const override {return _status;}
+    virtual status disconnect() override;
+
+    virtual DataBuffer loadData() override;
+    virtual bool sendData(const void* buffer, const size_t size) const override;
+    virtual SocketType getType() const override {return SocketType::server_socket;}
+  };
+
+  struct ClientKey{ uint32_t host; uint16_t port; };
+
+  struct ClientComparator {
+    using is_transparent = std::true_type;
+
+    bool operator()(const std::unique_ptr<Client>& lhs, const std::unique_ptr<Client>& rhs) const {
+      return (uint64_t(lhs->getHost()) | uint64_t(lhs->getPort()) << 32) < (uint64_t(rhs->getHost()) | uint64_t(rhs->getPort()) << 32);
+    }
+
+    bool operator()(const std::unique_ptr<Client>& lhs, const ClientKey& rhs) const {
+      return (uint64_t(lhs->getHost()) | uint64_t(lhs->getPort()) << 32) < (uint64_t(rhs.host) | uint64_t(rhs.port) << 32);
+    }
+
+    bool operator()(const ClientKey& lhs, const std::unique_ptr<Client>& rhs) const {
+      return (uint64_t(lhs.host) | uint64_t(lhs.port) << 32) < (uint64_t(rhs->getHost()) | uint64_t(rhs->getPort()) << 32);
+    }
+  };
+
   class ClientList;
   typedef std::function<void(DataBuffer, Client&)> handler_function_t;
   typedef std::function<void(Client&)> con_handler_function_t;
@@ -59,9 +96,9 @@ private:
   con_handler_function_t disconnect_hndl = default_connsection_handler;
 
   ThreadPool thread_pool;
-  typedef std::list<std::unique_ptr<Client>>::iterator ClientIterator;
+  typedef std::set<std::unique_ptr<Client>, ClientComparator>::iterator ClientIterator;
   KeepAliveConfig ka_conf;
-  std::list<std::unique_ptr<Client>> client_list;
+  std::set<std::unique_ptr<Client>, ClientComparator> client_list;
   std::mutex client_mutex;
 
   bool enableKeepAlive(Socket socket);
@@ -74,7 +111,7 @@ public:
             handler_function_t handler = default_data_handler,
             con_handler_function_t connect_hndl = default_connsection_handler,
             con_handler_function_t disconnect_hndl = default_connsection_handler,
-            uint thread_count = std::thread::hardware_concurrency()
+            unsigned int thread_count = std::thread::hardware_concurrency()
             );
 
   ~TcpServer();
@@ -100,28 +137,6 @@ public:
   bool sendDataBy(uint32_t host, uint16_t port, const void* buffer, const size_t size);
   bool disconnectBy(uint32_t host, uint16_t port);
   void disconnectAll();
-};
-
-struct TcpServer::Client : public TcpClientBase {
-  friend struct TcpServer;
-
-  std::mutex access_mtx;
-  SocketAddr_in address;
-  Socket socket;
-  status _status = status::connected;
-
-
-public:
-  Client(Socket socket, SocketAddr_in address);
-  virtual ~Client() override;
-  virtual uint32_t getHost() const override;
-  virtual uint16_t getPort() const override;
-  virtual status getStatus() const override {return _status;}
-  virtual status disconnect() override;
-
-  virtual DataBuffer loadData() override;
-  virtual bool sendData(const void* buffer, const size_t size) const override;
-  virtual SocketType getType() const override {return SocketType::server_socket;}
 };
 
 }

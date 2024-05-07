@@ -1,4 +1,4 @@
-#include "../include/TcpServer.h"
+﻿#include "../include/TcpServer.h"
 #include <chrono>
 #include <cstring>
 #include <mutex>
@@ -7,6 +7,7 @@ using namespace stcp;
 
 
 #ifdef _WIN32
+#include <mstcpip.h>
 #define WIN(exp) exp
 #define NIX(exp)
 
@@ -20,7 +21,7 @@ TcpServer::TcpServer(const uint16_t port,
                      handler_function_t handler,
                      con_handler_function_t connect_hndl,
                      con_handler_function_t disconnect_hndl,
-                     uint thread_count
+                     unsigned int thread_count
                      )
   : port(port),
     handler(handler),
@@ -119,30 +120,25 @@ bool TcpServer::connectTo(uint32_t host, uint16_t port, con_handler_function_t c
   std::unique_ptr<Client> client(new Client(client_socket, address));
   connect_hndl(*client);
   client_mutex.lock();
-  client_list.emplace_back(std::move(client));
+  client_list.emplace(std::move(client));
   client_mutex.unlock();
   return true;
 }
 
 void TcpServer::sendData(const void* buffer, const size_t size) {
-  for(std::unique_ptr<Client>& client : client_list)
-    client->sendData(buffer, size);
+  for(const std::unique_ptr<Client>& client : client_list) client->sendData(buffer, size);
 }
 
 bool TcpServer::sendDataBy(uint32_t host, uint16_t port, const void* buffer, const size_t size) {
-  bool data_is_sended = false;
-  for(std::unique_ptr<Client>& client : client_list)
-    if(client->getHost() == host &&
-       client->getPort() == port) {
-      client->sendData(buffer, size);
-      data_is_sended = true;
-    }
-  return data_is_sended;
+  if(auto client_it = client_list.find(ClientKey{host, port}); client_it != client_list.cend()) {
+    (*client_it)->sendData(buffer, size);
+    return true;
+  } return false;
 }
 
 bool TcpServer::disconnectBy(uint32_t host, uint16_t port) {
   bool client_is_disconnected = false;
-  for(std::unique_ptr<Client>& client : client_list)
+  for(const std::unique_ptr<Client>& client : client_list)
     if(client->getHost() == host &&
        client->getPort() == port) {
       client->disconnect();
@@ -152,7 +148,7 @@ bool TcpServer::disconnectBy(uint32_t host, uint16_t port) {
 }
 
 void TcpServer::disconnectAll() {
-  for(std::unique_ptr<Client>& client : client_list)
+  for(const std::unique_ptr<Client>& client : client_list)
     client->disconnect();
 }
 
@@ -169,7 +165,7 @@ void TcpServer::handlingAcceptLoop() {
       std::unique_ptr<Client> client(new Client(client_socket, client_addr));
       connect_hndl(*client);
       client_mutex.lock();
-      client_list.emplace_back(std::move(client));
+      client_list.emplace(std::move(client));
       client_mutex.unlock();
     } else {
       shutdown(client_socket, 0);
@@ -182,36 +178,43 @@ void TcpServer::handlingAcceptLoop() {
 }
 
 void TcpServer::waitingDataLoop() {
-  {
+  [this]{
     std::lock_guard lock(client_mutex);
     for(auto it = client_list.begin(), end = client_list.end(); it != end; ++it) {
-      auto& client = *it;
-      if(client){
+
+      do {
+        auto& client = *it;
+
         if(DataBuffer data = client->loadData(); !data.empty()) {
 
-          thread_pool.addJob([this, _data = std::move(data), &client]{
-            client->access_mtx.lock();
-            handler(std::move(_data), *client);
-            client->access_mtx.unlock();
+          thread_pool.addJob([this, _data = std::move(data), &client = *client]{
+            client.access_mtx.lock();
+            handler(std::move(_data), client);
+            client.access_mtx.unlock();
           });
+
         } else if(client->_status == SocketStatus::disconnected) {
 
-          thread_pool.addJob([this, &client, it]{
-            client->access_mtx.lock();
-            Client* pointer = client.release();
-            client = nullptr;
-            pointer->access_mtx.unlock();
-            disconnect_hndl(*pointer);
-            client_list.erase(it);
-            delete pointer;
+          thread_pool.addJob([this, it = it++]{
+            client_mutex.lock();
+            auto client_node = client_list.extract(it);
+            client_mutex.unlock();
+            client_node.value()->access_mtx.lock();
+            disconnect_hndl(*client_node.value());
+            client_node.value()->access_mtx.unlock();
           });
-        }
-      }
-    }
-  }
 
-  if(_status == status::up)
-    thread_pool.addJob([this](){waitingDataLoop();});
+          if(it == client_list.cend()) return;
+          else continue;
+        }
+
+        break;
+      } while(true);
+
+    }
+  }();
+
+  if(_status == status::up) thread_pool.addJob([this](){waitingDataLoop();});
 }
 
 bool TcpServer::enableKeepAlive(Socket socket) {

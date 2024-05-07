@@ -10,8 +10,8 @@ CONFIG += c++2a
 CONFIG += c++17
 LIBS +=  -lpthread
 QMAKE_LFLAGS += -static
-LIBS += C:\Qt\Tools\mingw730_64\x86_64-w64-mingw32\lib\libws2_32.a \
-     -static C:\Qt\Tools\mingw730_64\x86_64-w64-mingw32\lib\libwinpthread-1.dll \
+LIBS += C:\Qt\Tools\mingw1120_64\x86_64-w64-mingw32\lib\libws2_32.a \
+     -static C:\Qt\Tools\mingw1120_64\x86_64-w64-mingw32\lib\libwinpthread-1.dll \
     -static-libstdc++ -static-libgcc
 
 QMAKE_LFLAGS    = -Wl,-enable-stdcall-fixup -Wl,-enable-auto-import -Wl,-enable-runtime-pseudo-reloc

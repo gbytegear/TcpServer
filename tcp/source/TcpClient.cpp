@@ -1,4 +1,4 @@
-#include "../include/TcpClient.h"
+﻿#include "../include/TcpClient.h"
 #include <stdio.h>
 #include <cstring>
 #include <iostream>
@@ -141,7 +141,6 @@ TcpClient::~TcpClient() {
 }
 
 TcpClient::status TcpClient::connectTo(uint32_t host, uint16_t port) noexcept {
-  WIN(if(WSAStartup(MAKEWORD(2, 2), &w_data) != 0) {})
 
   if((client_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_IP)) WIN(== INVALID_SOCKET) NIX(< 0)) return _status = status::err_socket_init;
 
@@ -210,7 +209,7 @@ DataBuffer TcpClient::loadData() {
       )
 
       switch (err) {
-        case 0: break;
+        case 0: return DataBuffer();
           // Keep alive timeout
         case ETIMEDOUT:
         case ECONNRESET:
@@ -272,10 +271,10 @@ void TcpClient::joinHandler() {
 }
 
 bool TcpClient::sendData(const void* buffer, const size_t size) const {
-  void* send_buffer = malloc(size + sizeof (int));
-  memcpy(reinterpret_cast<char*>(send_buffer) + sizeof(int), buffer, size);
-  *reinterpret_cast<int*>(send_buffer) = size;
-  if(send(client_socket, reinterpret_cast<char*>(send_buffer), size + sizeof(int), 0) < 0) return false;
+  void* send_buffer = malloc(size + sizeof (uint32_t));
+  memcpy(reinterpret_cast<char*>(send_buffer) + sizeof(uint32_t), buffer, size);
+  *reinterpret_cast<uint32_t*>(send_buffer) = size;
+  if(send(client_socket, reinterpret_cast<char*>(send_buffer), size + sizeof(uint32_t), 0) < 0) return false;
   free(send_buffer);
 	return true;
 }

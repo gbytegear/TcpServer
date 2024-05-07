@@ -1,7 +1,8 @@
-#ifndef GENERAL_H
+﻿#ifndef GENERAL_H
 #define GENERAL_H
 
 #ifdef _WIN32
+#include <WinSock2.h>
 #else
 #define SD_BOTH 0
 #include <sys/socket.h>
@@ -43,7 +44,7 @@ enum class SocketStatus : uint8_t {
   err_socket_init = 1,
   err_socket_bind = 2,
   err_socket_connect = 3,
-  disconnected = 4
+  disconnected = 4,
 };
 
 /// Simple thread pool implementation
@@ -54,9 +55,9 @@ class ThreadPool {
   std::condition_variable condition;
   std::atomic<bool> pool_terminated = false;
 
-  void setupThreadPool(uint thread_count) {
+  void setupThreadPool(unsigned int thread_count) {
     thread_pool.clear();
-    for(uint i = 0; i < thread_count; ++i)
+    for(unsigned int i = 0; i < thread_count; ++i)
       thread_pool.emplace_back(&ThreadPool::workerLoop, this);
   }
 
@@ -74,7 +75,7 @@ class ThreadPool {
     }
   }
 public:
-  ThreadPool(uint thread_count = std::thread::hardware_concurrency()) {setupThreadPool(thread_count);}
+  ThreadPool(unsigned int thread_count = std::thread::hardware_concurrency()) {setupThreadPool(thread_count);}
 
   ~ThreadPool() {
     pool_terminated = true;
@@ -96,7 +97,7 @@ public:
 
   void join() {for(auto& thread : thread_pool) thread.join();}
 
-  uint getThreadCount() const {return thread_pool.size();}
+  unsigned int getThreadCount() const {return thread_pool.size();}
 
   void dropUnstartedJobs() {
     pool_terminated = true;
@@ -114,7 +115,7 @@ public:
     join();
   }
 
-  void start(uint thread_count = std::thread::hardware_concurrency()) {
+  void start(unsigned int thread_count = std::thread::hardware_concurrency()) {
     if(!pool_terminated) return;
     pool_terminated = false;
     setupThreadPool(thread_count);
@@ -144,16 +145,12 @@ public:
 
 #ifdef _WIN32 // Windows NT
 namespace {
-class _WinSocketIniter {
-  static WSAData w_data;
-public:
-  _WinSocketIniter() {
-    WSAStartup(MAKEWORD(2, 2), &w_data)
-  }
 
-  ~_WinSocketIniter() {
-    WSACleanup()
-  }
+class _WinSocketIniter {
+  static inline WSAData w_data;
+public:
+  _WinSocketIniter() { WSAStartup(MAKEWORD(2, 2), &w_data); }
+  ~_WinSocketIniter() { WSACleanup(); }
 };
 
 static inline _WinSocketIniter _winsock_initer;

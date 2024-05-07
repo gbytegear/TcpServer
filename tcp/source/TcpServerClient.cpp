@@ -1,4 +1,4 @@
-#include "../include/TcpServer.h"
+﻿#include "../include/TcpServer.h"
 
 using namespace stcp;
 
@@ -122,7 +122,7 @@ DataBuffer TcpServer::Client::loadData() {
 
 
     switch (err) {
-      case 0: break;
+      case 0: return DataBuffer();
         // Keep alive timeout
       case ETIMEDOUT:
       case ECONNRESET:
@@ -141,7 +141,7 @@ DataBuffer TcpServer::Client::loadData() {
 
   if(!size) return DataBuffer();
   buffer.resize(size);
-  recv(socket, buffer.data(), buffer.size(), 0);
+  recv(socket, reinterpret_cast<char*>(buffer.data()), buffer.size(), 0);
   return buffer;
 }
 
@@ -162,7 +162,10 @@ bool TcpServer::Client::sendData(const void* buffer, const size_t size) const {
   memcpy(reinterpret_cast<char*>(send_buffer) + sizeof(uint32_t), buffer, size);
   *reinterpret_cast<uint32_t*>(send_buffer) = size;
 
-  if(send(socket, reinterpret_cast<char*>(send_buffer), size + sizeof (int), 0) < 0) return false;
+  if(send(socket, reinterpret_cast<char*>(send_buffer), size + sizeof (int), 0) < 0) {
+    free(send_buffer);
+    return false;
+  }
 
   free(send_buffer);
   return true;
